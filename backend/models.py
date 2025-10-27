@@ -24,9 +24,15 @@ class EditConfig(BaseModel):
         true_cfg_scale: Classifier-free guidance scale (higher = more prompt adherence)
         num_inference_steps: Number of diffusion steps (higher = better quality but slower)
     """
-    prompt: str = Field(..., description="Edit instruction or description")
+    prompt: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Edit instruction or description"
+    )
     negative_prompt: Optional[str] = Field(
         None,
+        max_length=300,
         description="What to avoid in the edited image"
     )
     true_cfg_scale: float = Field(

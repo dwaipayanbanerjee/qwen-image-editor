@@ -1,7 +1,19 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 export default function EditConfig({ images, config, onChange, onGenerate, onBack }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [imagePreviewUrls, setImagePreviewUrls] = useState([])
+
+  // Create and cleanup object URLs
+  useEffect(() => {
+    const urls = images.map(image => URL.createObjectURL(image))
+    setImagePreviewUrls(urls)
+
+    // Cleanup function to revoke URLs
+    return () => {
+      urls.forEach(url => URL.revokeObjectURL(url))
+    }
+  }, [images])
 
   const handlePromptChange = (e) => {
     onChange({ ...config, prompt: e.target.value })
@@ -38,10 +50,10 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
             Selected Images ({images.length})
           </label>
           <div className="grid grid-cols-2 gap-4">
-            {images.map((image, index) => (
+            {imagePreviewUrls.map((url, index) => (
               <div key={index} className="relative">
                 <img
-                  src={URL.createObjectURL(image)}
+                  src={url}
                   alt={`Selected ${index + 1}`}
                   className="w-full h-40 object-cover rounded-lg border-2 border-gray-200"
                 />

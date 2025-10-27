@@ -24,10 +24,16 @@ const API_URL = getApiUrl()
 // Log the API URL for debugging
 console.log('API URL:', API_URL)
 
+// Helper to calculate timeout based on inference steps
+const calculateTimeout = (inferenceSteps = 50) => {
+  // ~1 second per step + 60 second buffer
+  return (inferenceSteps * 1000) + 60000
+}
+
 // Create axios instance with default config
 export const api = axios.create({
   baseURL: API_URL,
-  timeout: 300000, // 5 minutes timeout (image editing is fast)
+  timeout: 180000, // 3 minutes default for non-edit requests
 })
 
 /**
@@ -50,10 +56,14 @@ export const generateEdit = async (images, config) => {
   // Add config as JSON string
   formData.append('config', JSON.stringify(config))
 
+  // Calculate timeout based on inference steps
+  const timeout = calculateTimeout(config.num_inference_steps || 50)
+
   return await api.post('/api/edit', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    timeout: timeout,
   })
 }
 

@@ -28,14 +28,32 @@ export default function ImageCrop({ image, imageName, onCropComplete, onSkip }) 
   // Set initial aspect ratio
   const initializeAspectRatio = (aspectValue) => {
     if (aspectValue) {
-      setCrop({
-        unit: '%',
-        width: 90,
-        height: 90 / aspectValue,
-        x: 5,
-        y: 5,
-        aspect: aspectValue
-      })
+      // Calculate width and height to fit within image bounds
+      const targetWidth = 90
+      let targetHeight = targetWidth / aspectValue
+
+      // If height exceeds bounds, calculate based on height instead
+      if (targetHeight > 90) {
+        targetHeight = 90
+        const targetWidth = targetHeight * aspectValue
+        setCrop({
+          unit: '%',
+          width: Math.min(targetWidth, 90),
+          height: targetHeight,
+          x: 5,
+          y: 5,
+          aspect: aspectValue
+        })
+      } else {
+        setCrop({
+          unit: '%',
+          width: targetWidth,
+          height: targetHeight,
+          x: 5,
+          y: 5,
+          aspect: aspectValue
+        })
+      }
     } else {
       setCrop({
         unit: '%',

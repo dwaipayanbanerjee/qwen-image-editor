@@ -17,29 +17,63 @@ class ImageEditor:
     Supports single image editing and multi-image combining
     """
 
-    def __init__(self):
-        """Initialize and load the Qwen-Image-Edit model"""
+    def __init__(self, progress_callback: Optional[Callable[[int], None]] = None):
+        """
+        Initialize and load the Qwen-Image-Edit model
+
+        Args:
+            progress_callback: Optional callback for download progress (receives percentage 0-100)
+        """
         self.pipeline = None
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._load_model()
+        self._load_model(progress_callback)
 
-    def _load_model(self):
-        """Lazy load the Qwen-Image-Edit pipeline"""
-        try:
-            from diffusers import QwenImageEditPipeline
+    def _load_model(self, progress_callback: Optional[Callable[[int], None]] = None):
+        """
+        Lazy load the Qwen-Image-Edit pipeline with retry logic
 
-            logger.info("Loading Qwen-Image-Edit pipeline...")
-            self.pipeline = QwenImageEditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit",
-                torch_dtype=torch.bfloat16
-            )
-            self.pipeline.to(self.device)
+        Args:
+            progress_callback: Optional callback for progress updates
+        """
+        max_retries = 3
+        retry_count = 0
 
-            logger.info(f"Model loaded successfully on {self.device}")
+        while retry_count < max_retries:
+            try:
+                from diffusers import QwenImageEditPipeline
 
-        except Exception as e:
-            logger.error(f"Failed to load Qwen-Image-Edit model: {str(e)}")
-            raise
+                logger.info(f"Loading Qwen-Image-Edit pipeline (attempt {retry_count + 1}/{max_retries})...")
+
+                # Note: Hugging Face doesn't provide granular download progress easily,
+                # but we can report key milestones
+                if progress_callback:
+                    progress_callback(0)
+
+                self.pipeline = QwenImageEditPipeline.from_pretrained(
+                    "Qwen/Qwen-Image-Edit",
+                    torch_dtype=torch.bfloat16
+                )
+
+                if progress_callback:
+                    progress_callback(80)
+
+                self.pipeline.to(self.device)
+
+                if progress_callback:
+                    progress_callback(100)
+
+                logger.info(f"Model loaded successfully on {self.device}")
+                return
+
+            except Exception as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.error(f"Failed to load Qwen-Image-Edit model after {max_retries} attempts: {str(e)}")
+                    raise
+                else:
+                    logger.warning(f"Failed to load model (attempt {retry_count}), retrying: {str(e)}")
+                    import time
+                    time.sleep(5)  # Wait before retry
 
     def edit_image(
         self,
@@ -49,7 +83,8 @@ class ImageEditor:
         true_cfg_scale: float = 4.0,
         num_inference_steps: int = 50,
         output_path: str = "output.jpg",
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None
     ) -> str:
         """
         Edit image(s) using Qwen-Image-Edit model
@@ -62,20 +97,37 @@ class ImageEditor:
             num_inference_steps: Number of diffusion steps (default: 50)
             output_path: Where to save the edited image
             progress_callback: Optional callback for progress updates
+            is_cancelled: Optional callback to check if job is cancelled
 
         Returns:
             Path to the edited image
+
+        Raises:
+            Exception: If cancelled or error occurs
         """
         try:
-            if progress_callback:
-                progress_callback("loading_images", "Loading input images...", 10)
+            # Check cancellation at start
+            if is_cancelled and is_cancelled():
+                raise Exception("Job cancelled before loading images")
 
-            # Load images
+            if progress_callback:
+                progress_callback("loading_images", "Loading input images...", 30)
+
+            # Load images with EXIF preservation
             images = []
-            for img_path in image_paths:
-                img = Image.open(img_path).convert('RGB')
+            exif_data = None
+            for i, img_path in enumerate(image_paths):
+                img = Image.open(img_path)
+                # Preserve EXIF from first image
+                if i == 0 and hasattr(img, 'info'):
+                    exif_data = img.info.get('exif')
+                img = img.convert('RGB')
                 images.append(img)
                 logger.info(f"Loaded image: {img_path}, size: {img.size}")
+
+            # Check cancellation
+            if is_cancelled and is_cancelled():
+                raise Exception("Job cancelled during image loading")
 
             # Handle single vs multi-image
             if len(images) == 1:
@@ -83,11 +135,15 @@ class ImageEditor:
             else:
                 # Combine two images side-by-side
                 if progress_callback:
-                    progress_callback("combining_images", "Combining images...", 20)
+                    progress_callback("combining_images", "Combining images...", 35)
                 input_image = self._combine_images(images[0], images[1])
 
+            # Check cancellation
+            if is_cancelled and is_cancelled():
+                raise Exception("Job cancelled before inference")
+
             if progress_callback:
-                progress_callback("editing", "Applying edits with Qwen model...", 30)
+                progress_callback("editing", "Applying edits with Qwen model...", 40)
 
             # Run inference
             logger.info(f"Starting inference with prompt: '{prompt}'")
@@ -99,14 +155,22 @@ class ImageEditor:
                 num_inference_steps=num_inference_steps,
             )
 
+            # Check cancellation after inference
+            if is_cancelled and is_cancelled():
+                raise Exception("Job cancelled after inference")
+
             # Extract the edited image
             edited_image = output.images[0]
 
             if progress_callback:
-                progress_callback("saving", "Saving edited image...", 90)
+                progress_callback("saving", "Saving edited image...", 95)
 
-            # Save output
-            edited_image.save(output_path, quality=95)
+            # Save output with EXIF if available
+            save_kwargs = {'quality': 95}
+            if exif_data:
+                save_kwargs['exif'] = exif_data
+
+            edited_image.save(output_path, **save_kwargs)
             logger.info(f"Saved edited image to: {output_path}")
 
             # Clear GPU cache
@@ -116,6 +180,9 @@ class ImageEditor:
             return output_path
 
         except Exception as e:
+            # Clear GPU cache on error too
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             logger.error(f"Error during image editing: {str(e)}")
             raise
 

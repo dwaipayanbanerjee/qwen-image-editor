@@ -36,9 +36,24 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 EOF
 fi
 
-# Load environment variables
+# Load environment variables safely
 echo "Loading environment variables..."
-export $(cat .env | grep -v '^#' | xargs)
+if [ -f ".env" ]; then
+    # Read .env file line by line, safely handling spaces and special characters
+    while IFS='=' read -r key value; do
+        # Skip empty lines and comments
+        if [[ -z "$key" || "$key" =~ ^#.* ]]; then
+            continue
+        fi
+        # Remove leading/trailing whitespace
+        key=$(echo "$key" | xargs)
+        value=$(echo "$value" | xargs)
+        # Only export valid variable names
+        if [[ "$key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+            export "$key=$value"
+        fi
+    done < .env
+fi
 
 # Activate virtual environment
 echo "Activating virtual environment..."

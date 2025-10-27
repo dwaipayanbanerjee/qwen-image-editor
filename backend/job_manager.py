@@ -8,19 +8,13 @@ import time
 import shutil
 import asyncio
 from pathlib import Path
-from typing import Dict, Optional, List
-from enum import Enum
-from threading import Lock
+from typing import Dict, Optional, List, Any
+from threading import Lock, Event
 import logging
 
+from models import JobStatus
+
 logger = logging.getLogger(__name__)
-
-
-class JobStatus(str, Enum):
-    """Job status enumeration"""
-    PROCESSING = "processing"
-    COMPLETE = "complete"
-    ERROR = "error"
 
 
 class JobManager:
@@ -31,17 +25,23 @@ class JobManager:
     - WebSocket connection registry
     """
 
-    def __init__(self, jobs_dir: Path):
+    def __init__(self, jobs_dir: Path, event_loop: Optional[asyncio.AbstractEventLoop] = None):
         """
         Initialize JobManager
 
         Args:
             jobs_dir: Base directory for storing job files
+            event_loop: Event loop for WebSocket broadcasting (set during app startup)
         """
         self.jobs_dir = Path(jobs_dir)
         self.jobs: Dict[str, dict] = {}
         self.ws_connections: Dict[str, List] = {}  # job_id -> [websockets]
+        self.cancellation_events: Dict[str, Event] = {}  # job_id -> cancellation event
+        self.job_tasks: Dict[str, asyncio.Task] = {}  # job_id -> background task
         self.lock = Lock()
+        self.event_loop = event_loop
+        self._pending_writes: Dict[str, float] = {}  # job_id -> last_update_time
+        self._write_interval = 2.0  # Write to disk at most every 2 seconds
 
         # Ensure jobs directory exists
         self.jobs_dir.mkdir(parents=True, exist_ok=True)
@@ -89,9 +89,11 @@ class JobManager:
                 'error': None,
                 'created_at': time.time()
             }
+            # Create cancellation event for this job
+            self.cancellation_events[job_id] = Event()
 
-        # Save to disk
-        self._save_job_metadata(job_id)
+        # Save to disk immediately for new jobs
+        self._save_job_metadata(job_id, force=True)
 
         logger.info(f"Created job {job_id}")
         return job_id
@@ -101,7 +103,33 @@ class JobManager:
         with self.lock:
             return self.jobs.get(job_id)
 
-    def set_status(self, job_id: str, status: JobStatus, error: Optional[str] = None):
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Set the event loop for WebSocket broadcasting"""
+        self.event_loop = loop
+        logger.info("Event loop set for JobManager")
+
+    def register_task(self, job_id: str, task: asyncio.Task) -> None:
+        """Register a background task for a job"""
+        with self.lock:
+            self.job_tasks[job_id] = task
+        logger.info(f"Registered task for job {job_id}")
+
+    def is_cancelled(self, job_id: str) -> bool:
+        """Check if a job has been cancelled"""
+        with self.lock:
+            event = self.cancellation_events.get(job_id)
+            return event.is_set() if event else False
+
+    def request_cancellation(self, job_id: str) -> bool:
+        """Request cancellation of a job"""
+        with self.lock:
+            if job_id in self.cancellation_events:
+                self.cancellation_events[job_id].set()
+                logger.info(f"Cancellation requested for job {job_id}")
+                return True
+            return False
+
+    def set_status(self, job_id: str, status: JobStatus, error: Optional[str] = None) -> None:
         """
         Update job status
 
@@ -119,8 +147,8 @@ class JobManager:
             if error:
                 self.jobs[job_id]['error'] = error
 
-        # Save to disk
-        self._save_job_metadata(job_id)
+        # Always save immediately for status changes (critical state)
+        self._save_job_metadata(job_id, force=True)
 
         # Broadcast to WebSocket clients
         self._schedule_broadcast(job_id)
@@ -133,7 +161,7 @@ class JobManager:
         stage: str,
         message: str,
         progress: int = 0
-    ):
+    ) -> None:
         """
         Update job progress information
 
@@ -143,6 +171,8 @@ class JobManager:
             message: Human-readable progress message
             progress: Progress percentage (0-100)
         """
+        current_time = time.time()
+
         with self.lock:
             if job_id not in self.jobs:
                 logger.warning(f"Job {job_id} not found")
@@ -152,24 +182,50 @@ class JobManager:
                 'stage': stage,
                 'message': message,
                 'progress': progress,
-                'updated_at': time.time()
+                'updated_at': current_time
             }
 
-        # Save to disk
-        self._save_job_metadata(job_id)
+            # Track pending write
+            last_write = self._pending_writes.get(job_id, 0)
+            force_write = (current_time - last_write) >= self._write_interval
+
+        # Save to disk only if enough time has passed (batching)
+        # or if it's a critical progress point (0%, 100%)
+        if force_write or progress in [0, 100]:
+            self._save_job_metadata(job_id, force=True)
+            with self.lock:
+                self._pending_writes[job_id] = current_time
+        else:
+            # Just mark as dirty, will be written on next forced write
+            self._save_job_metadata(job_id, force=False)
 
         # Broadcast to WebSocket clients
         self._schedule_broadcast(job_id)
 
-    def _save_job_metadata(self, job_id: str):
-        """Save job metadata to disk"""
+    def _save_job_metadata(self, job_id: str, force: bool = False) -> None:
+        """
+        Save job metadata to disk
+
+        Args:
+            job_id: Job identifier
+            force: If True, write immediately; if False, skip if recently written
+        """
+        if not force:
+            # Skip write if not forced (batching optimization)
+            return
+
         try:
+            with self.lock:
+                if job_id not in self.jobs:
+                    return
+                job_data = self.jobs[job_id].copy()
+
             job_dir = self.jobs_dir / job_id
             job_dir.mkdir(parents=True, exist_ok=True)
 
             metadata_file = job_dir / 'metadata.json'
             with open(metadata_file, 'w') as f:
-                json.dump(self.jobs[job_id], f, indent=2)
+                json.dump(job_data, f, indent=2)
 
         except Exception as e:
             logger.error(f"Error saving metadata for job {job_id}: {str(e)}")
@@ -177,6 +233,7 @@ class JobManager:
     def delete_job(self, job_id: str) -> bool:
         """
         Delete job and all associated files
+        Also cancels the job if it's still running
 
         Args:
             job_id: Job identifier
@@ -185,8 +242,26 @@ class JobManager:
             True if successful, False otherwise
         """
         try:
-            # Remove from memory
+            # Request cancellation first
+            self.request_cancellation(job_id)
+
+            # Cancel the task if it exists
             with self.lock:
+                if job_id in self.job_tasks:
+                    task = self.job_tasks[job_id]
+                    if not task.done():
+                        task.cancel()
+                    del self.job_tasks[job_id]
+
+                # Remove cancellation event
+                if job_id in self.cancellation_events:
+                    del self.cancellation_events[job_id]
+
+                # Remove pending writes tracking
+                if job_id in self._pending_writes:
+                    del self._pending_writes[job_id]
+
+                # Remove from memory
                 if job_id in self.jobs:
                     del self.jobs[job_id]
 
@@ -226,22 +301,22 @@ class JobManager:
 
         logger.info(f"WebSocket removed for job {job_id}")
 
-    def _schedule_broadcast(self, job_id: str):
+    def _schedule_broadcast(self, job_id: str) -> None:
         """
         Schedule a broadcast to all WebSocket clients for a job
         Safely handles being called from worker threads
         """
+        if not self.event_loop:
+            logger.warning(f"Event loop not set, cannot broadcast for job {job_id}")
+            return
+
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # We're in an async context, schedule the broadcast
-                asyncio.create_task(self._broadcast_progress(job_id))
-            else:
-                # We're in a worker thread, schedule on the event loop
-                asyncio.run_coroutine_threadsafe(
-                    self._broadcast_progress(job_id),
-                    loop
-                )
+            # Always use run_coroutine_threadsafe with the saved event loop
+            # This is safe whether called from async context or worker thread
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast_progress(job_id),
+                self.event_loop
+            )
         except Exception as e:
             logger.error(f"Error scheduling broadcast for job {job_id}: {str(e)}")
 

@@ -9,6 +9,14 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 import sys
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 def get_jobs_dir():
@@ -24,7 +32,7 @@ def get_directory_size(path: Path) -> int:
             if item.is_file():
                 total += item.stat().st_size
     except Exception as e:
-        print(f"Error calculating size: {e}")
+        logger.error(f"Error calculating size: {e}")
     return total
 
 

@@ -1,63 +1,143 @@
 import { useState, useEffect, useRef } from 'react'
-import { getJobStatus, downloadImage, deleteJob } from '../utils/api'
+import { getJobStatus, downloadImage, deleteJob, createWebSocket } from '../utils/api'
 
 export default function ProgressTracker({ jobId, onComplete, onError, onCancel, onRestart }) {
   const [status, setStatus] = useState('processing')
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState(null)
-  const [connectionMethod, setConnectionMethod] = useState('polling')
+  const [connectionMethod, setConnectionMethod] = useState('connecting')
   const pollingIntervalRef = useRef(null)
+  const websocketRef = useRef(null)
 
   useEffect(() => {
     if (!jobId) return
 
-    console.log(`Starting HTTP polling for job ${jobId}`)
-    setConnectionMethod('polling')
+    let isMounted = true
 
-    // Poll job status every 1.5 seconds
-    const pollJobStatus = async () => {
-      try {
-        const response = await getJobStatus(jobId)
-        const data = response.data
+    // Try WebSocket first
+    console.log(`Attempting WebSocket connection for job ${jobId}`)
 
-        setStatus(data.status)
-        setProgress(data.progress)
+    try {
+      const ws = createWebSocket(
+        jobId,
+        (data) => {
+          if (!isMounted) return
 
-        if (data.error) {
-          setError(data.error)
-        }
+          console.log('WebSocket message received:', data)
+          setStatus(data.status)
+          setProgress(data.progress)
 
-        // Stop polling if job is complete or errored
-        if (data.status === 'complete') {
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current)
-            pollingIntervalRef.current = null
+          if (data.error) {
+            setError(data.error)
           }
-          onComplete()
-        } else if (data.status === 'error') {
-          if (pollingIntervalRef.current) {
-            clearInterval(pollingIntervalRef.current)
-            pollingIntervalRef.current = null
+
+          // Handle completion
+          if (data.status === 'complete') {
+            setConnectionMethod('websocket')
+            onComplete()
+          } else if (data.status === 'error') {
+            setConnectionMethod('websocket')
+            onError(data.error || 'Unknown error occurred')
+          } else {
+            setConnectionMethod('websocket')
           }
-          onError(data.error || 'Unknown error occurred')
+        },
+        (err) => {
+          console.warn('WebSocket error, falling back to polling:', err)
+          if (!isMounted) return
+
+          // Fallback to HTTP polling
+          startPolling()
         }
-      } catch (err) {
-        console.error('Polling error:', err)
-        // Continue polling even on error
+      )
+
+      websocketRef.current = ws
+
+      // Set success state after connection opens
+      ws.addEventListener('open', () => {
+        if (isMounted) {
+          console.log('WebSocket connected successfully')
+          setConnectionMethod('websocket')
+        }
+      })
+
+      // Fallback to polling if WebSocket doesn't connect in 3 seconds
+      const fallbackTimer = setTimeout(() => {
+        if (connectionMethod === 'connecting' && isMounted) {
+          console.log('WebSocket timeout, falling back to polling')
+          if (websocketRef.current) {
+            websocketRef.current.close()
+            websocketRef.current = null
+          }
+          startPolling()
+        }
+      }, 3000)
+
+      // Cleanup
+      return () => {
+        isMounted = false
+        clearTimeout(fallbackTimer)
+        if (websocketRef.current) {
+          websocketRef.current.close()
+          websocketRef.current = null
+        }
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current)
+          pollingIntervalRef.current = null
+        }
       }
+    } catch (err) {
+      console.warn('Failed to create WebSocket, using polling:', err)
+      startPolling()
     }
 
-    // Initial poll
-    pollJobStatus()
+    function startPolling() {
+      if (!isMounted) return
 
-    // Set up polling interval
-    pollingIntervalRef.current = setInterval(pollJobStatus, 1500)
+      console.log(`Starting HTTP polling for job ${jobId}`)
+      setConnectionMethod('polling')
 
-    // Cleanup on unmount
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current)
-        pollingIntervalRef.current = null
+      // Poll job status every 1.5 seconds
+      const pollJobStatus = async () => {
+        try {
+          const response = await getJobStatus(jobId)
+          const data = response.data
+
+          if (!isMounted) return
+
+          setStatus(data.status)
+          setProgress(data.progress)
+
+          if (data.error) {
+            setError(data.error)
+          }
+
+          // Stop polling if job is complete or errored
+          if (data.status === 'complete') {
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current)
+              pollingIntervalRef.current = null
+            }
+            onComplete()
+          } else if (data.status === 'error') {
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current)
+              pollingIntervalRef.current = null
+            }
+            onError(data.error || 'Unknown error occurred')
+          }
+        } catch (err) {
+          console.error('Polling error:', err)
+          // Continue polling even on error
+        }
+      }
+
+      // Initial poll
+      pollJobStatus()
+
+      // Set up polling interval
+      if (!pollingIntervalRef.current) {
+        pollingIntervalRef.current = setInterval(pollJobStatus, 1500)
       }
     }
   }, [jobId, onComplete, onError])
@@ -65,6 +145,14 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
   const handleDownload = async () => {
     try {
       await downloadImage(jobId)
+      // Clean up job after successful download
+      try {
+        await deleteJob(jobId)
+        console.log(`Job ${jobId} cleaned up after download`)
+      } catch (cleanupErr) {
+        console.warn('Failed to cleanup job after download:', cleanupErr)
+        // Non-critical, don't show error to user
+      }
     } catch (err) {
       console.error('Download error:', err)
       setError('Failed to download image')
@@ -79,10 +167,19 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
         pollingIntervalRef.current = null
       }
 
+      // Close WebSocket if active
+      if (websocketRef.current) {
+        websocketRef.current.close()
+        websocketRef.current = null
+      }
+
+      // Delete job
       await deleteJob(jobId)
       onCancel()
     } catch (err) {
       console.error('Cancel error:', err)
+      // Call onCancel anyway to let user continue
+      onCancel()
     }
   }
 
