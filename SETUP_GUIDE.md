@@ -63,7 +63,7 @@ A full-stack AI image editing application that uses the Qwen-Image-Edit model (2
 │                     YOUR LOCAL MAC                          │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Frontend (React + Vite)                            │   │
-│  │  - Runs on localhost:3001                           │   │
+│  │  - Runs on localhost:3000                           │   │
 │  │  - Development server                               │   │
 │  │  - User interface                                   │   │
 │  └──────────────────┬───────────────────────────────────┘   │
@@ -76,8 +76,8 @@ A full-stack AI image editing application that uses the Qwen-Image-Edit model (2
 │              RUNPOD A40 GPU SERVER                          │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Backend (FastAPI)                                   │   │
-│  │  - Internal: 0.0.0.0:8002                           │   │
-│  │  - External: https://...-8002.proxy.runpod.net      │   │
+│  │  - Internal: 0.0.0.0:8000                           │   │
+│  │  - External: https://...-8000.proxy.runpod.net      │   │
 │  │  - REST API + WebSocket                             │   │
 │  └──────────────────┬───────────────────────────────────┘   │
 │                     │                                        │
@@ -105,10 +105,10 @@ A full-stack AI image editing application that uses the Qwen-Image-Edit model (2
 
 | Component | Internal Port | External Port | Access URL |
 |-----------|--------------|---------------|------------|
-| Backend (RunPod) | 8002 | 8002 | `https://<pod-id>-8002.proxy.runpod.net` |
-| Frontend (Mac) | 3001 | 3001 | `http://localhost:3001` |
+| Backend (RunPod) | 8000 | 8000 | `https://<pod-id>-8000.proxy.runpod.net` |
+| Frontend (Mac) | 3000 | 3000 | `http://localhost:3000` |
 
-**Important**: RunPod's proxy allows external access to port 8002 without port forwarding.
+**Important**: RunPod's proxy allows external access to port 8000 without port forwarding.
 
 ### Data Flow
 
@@ -151,7 +151,7 @@ A full-stack AI image editing application that uses the Qwen-Image-Edit model (2
 ✅ **GPU**: A40 with 48GB VRAM (minimum 40GB for BF16 model)
 ✅ **Storage**: 50GB volume mounted at `/workspace`
 ✅ **Container**: `runpod-torch-v280` or similar PyTorch image
-✅ **Ports**: Port 8002 exposed via HTTP Services
+✅ **Ports**: Port 8000 exposed via HTTP Services
 ✅ **SSH Access**: SSH keys configured
 
 ### Local Mac Requirements
@@ -168,7 +168,7 @@ Pod ID: 2ww93nrkflzjy2-644110bf
 GPU: A40 x1 (48GB VRAM)
 Storage: 50GB volume at /workspace
 SSH: ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
-HTTP Service: Port 8002 (proxy URL pending)
+HTTP Service: Port 8000 (proxy URL pending)
 ```
 
 ---
@@ -311,7 +311,7 @@ cd /workspace/qwen-image-editor/backend
 **What happens on first start:**
 - Activates virtual environment
 - Loads environment variables from `.env`
-- Starts FastAPI server on port 8002
+- Starts FastAPI server on port 8000
 - **Downloads Qwen model** (~40GB, 10-30 minutes on first run)
 - Model cached in `/workspace/huggingface_cache`
 
@@ -322,7 +322,7 @@ Loading environment variables...
 Activating virtual environment...
 Configuration:
   Host: 0.0.0.0
-  Port: 8002
+  Port: 8000
   Jobs Directory: /workspace/jobs
   HuggingFace Cache: /workspace/huggingface_cache
 
@@ -330,7 +330,7 @@ Starting FastAPI server...
 INFO:     Started server process [12345]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8002
+INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
 **First run only - Model download:**
@@ -346,7 +346,7 @@ Open a **new SSH session** to RunPod:
 ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
 
 # Test health endpoint
-curl http://localhost:8002/
+curl http://localhost:8000/
 
 # Expected response:
 # {"status":"online","message":"Qwen Image Editor API is running","model":"Qwen-Image-Edit","gpu":"A40"}
@@ -388,9 +388,9 @@ Look for pod: `2ww93nrkflzjy2-644110bf`
 Click on the pod → Look for **"HTTP Services"** section:
 
 ```
-Port 8002
+Port 8000
 HTTP Service: [Status: Ready]
-URL: https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net
+URL: https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net
 ```
 
 **Copy this URL!** You'll need it for the frontend.
@@ -400,7 +400,7 @@ URL: https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net
 From your **Mac terminal**:
 
 ```bash
-curl https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net/
+curl https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net/
 
 # Expected: Same JSON response as before
 ```
@@ -428,10 +428,10 @@ nano .env
 
 ```bash
 # Before:
-VITE_API_URL=http://localhost:8002
+VITE_API_URL=http://localhost:8000
 
 # After:
-VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net
+VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net
 ```
 
 **Save and exit** (nano: Ctrl+O, Enter, Ctrl+X)
@@ -472,14 +472,14 @@ npm run dev
 ```
   VITE v5.0.11  ready in 523 ms
 
-  ➜  Local:   http://localhost:3001/
-  ➜  Network: http://192.168.1.x:3001/
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://192.168.1.x:3000/
   ➜  press h + enter to show help
 ```
 
 **Step 6.3**: Browser should auto-open
 
-If not, manually open: **http://localhost:3001**
+If not, manually open: **http://localhost:3000**
 
 You should see the Qwen Image Editor interface!
 
@@ -500,7 +500,7 @@ JOBS_DIR=/workspace/jobs
 
 # Server binding
 HOST=0.0.0.0          # Bind to all interfaces
-PORT=8002             # Internal port (exposed via RunPod proxy)
+PORT=8000             # Internal port (exposed via RunPod proxy)
 
 # GPU memory optimization
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -515,10 +515,10 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 ```bash
 # Development (local backend testing)
-VITE_API_URL=http://localhost:8002
+VITE_API_URL=http://localhost:8000
 
 # Production (RunPod backend)
-VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net
+VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net
 ```
 
 **Note**: Must be prefixed with `VITE_` for Vite to expose it to the browser.
@@ -782,7 +782,7 @@ WS /ws/{job_id}
 
 **Connection:**
 ```javascript
-const ws = new WebSocket('wss://your-pod-8002.proxy.runpod.net/ws/{job_id}')
+const ws = new WebSocket('wss://your-pod-8000.proxy.runpod.net/ws/{job_id}')
 ```
 
 **Incoming Messages:**
@@ -825,7 +825,7 @@ const ws = new WebSocket('wss://your-pod-8002.proxy.runpod.net/ws/{job_id}')
 
 ```bash
 # From RunPod SSH
-curl http://localhost:8002/
+curl http://localhost:8000/
 ```
 
 #### Monitor GPU Usage
@@ -999,20 +999,20 @@ Error loading model: Out of memory
 
 3. Restart pod if GPU memory fragmented
 
-#### Problem: Port 8002 not accessible externally
+#### Problem: Port 8000 not accessible externally
 
 **Symptoms:**
-- `curl http://localhost:8002/` works
-- `curl https://...-8002.proxy.runpod.net/` fails
+- `curl http://localhost:8000/` works
+- `curl https://...-8000.proxy.runpod.net/` fails
 
 **Solutions:**
 1. Check RunPod dashboard:
-   - HTTP Services → Port 8002 → Status should be "Ready"
+   - HTTP Services → Port 8000 → Status should be "Ready"
 
 2. Verify server is listening on 0.0.0.0:
    ```bash
-   netstat -tlnp | grep 8002
-   # Should show: 0.0.0.0:8002
+   netstat -tlnp | grep 8000
+   # Should show: 0.0.0.0:8000
    ```
 
 3. Check if RunPod proxy is up (rare issue):
@@ -1085,7 +1085,7 @@ RuntimeError: No CUDA GPUs are available
 
 2. Test backend directly:
    ```bash
-   curl https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net/
+   curl https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net/
    ```
 
 3. Check CORS (should be allow_origins=["*"])
@@ -1109,7 +1109,7 @@ RuntimeError: No CUDA GPUs are available
 
 2. Test WebSocket manually:
    ```javascript
-   const ws = new WebSocket('wss://your-pod-8002.proxy.runpod.net/ws/test-id')
+   const ws = new WebSocket('wss://your-pod-8000.proxy.runpod.net/ws/test-id')
    ws.onopen = () => console.log('Connected!')
    ```
 
@@ -1444,9 +1444,9 @@ python cleanup.py --hours 1
 ### URLs
 
 ```
-Frontend:  http://localhost:3001
-Backend:   https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net
-Health:    https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net/
+Frontend:  http://localhost:3000
+Backend:   https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net
+Health:    https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net/
 ```
 
 ### Default Configuration

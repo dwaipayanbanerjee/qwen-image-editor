@@ -29,7 +29,7 @@ JOBS_DIR=/workspace/jobs
 
 # Server configuration
 HOST=0.0.0.0
-PORT=8002
+PORT=8000
 
 # PyTorch GPU optimization
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True

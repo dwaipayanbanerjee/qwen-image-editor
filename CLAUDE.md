@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-AI-powered image editing application using Qwen-Image-Edit (20B parameter model). Split architecture: FastAPI backend on RunPod A40 GPU, React frontend running locally.
+AI-powered image editing application using Qwen-Image-Edit (20B parameter model). Flexible deployment: Run full-stack on RunPod, or split architecture with backend on RunPod and frontend locally.
 
 ## Common Commands
 
@@ -20,7 +20,7 @@ cd /workspace/qwen-image-editor/backend
 # First-time setup (creates venv, installs deps, downloads model)
 ./setup.sh
 
-# Start backend server (port 8002)
+# Start backend server (port 8000)
 ./start.sh
 
 # Run in background with screen
@@ -51,7 +51,7 @@ cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor
 # Install dependencies (first time only)
 npm install
 
-# Start dev server (port 3001)
+# Start dev server (port 3000)
 npm run dev
 
 # Build for production
@@ -61,29 +61,76 @@ npm run build
 npm run preview
 ```
 
-### Deploy Backend to RunPod
+### Full-Stack Deployment (RunPod)
 
 ```bash
-# From local Mac, copy backend files to RunPod
+# Deploy all files to RunPod
+cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor
+scp -P 22101 -i ~/.ssh/id_ed25519 -r backend frontend start-all*.sh root@69.30.85.14:/workspace/qwen-image-editor/
+
+# SSH into RunPod and start both services
+ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
+cd /workspace/qwen-image-editor
+
+# Option 1: Using tmux (recommended)
+./start-all-tmux.sh
+
+# Option 2: Using background processes
+./start-all.sh
+
+# Access services (expose ports 8000 and 3000 in RunPod HTTP Services)
+# Frontend: https://<pod-id>-3000.proxy.runpod.net
+# Backend:  https://<pod-id>-8000.proxy.runpod.net
+```
+
+### Split Deployment (Backend on RunPod, Frontend Local)
+
+```bash
+# Deploy only backend to RunPod
 cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor
 scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-image-editor/backend/
+
+# Start backend on RunPod
+ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
+cd /workspace/qwen-image-editor/backend
+./start.sh
+
+# Configure frontend .env locally
+# Update frontend/.env with: VITE_API_URL=https://<pod-id>-8000.proxy.runpod.net
+
+# Start frontend locally
+cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor/frontend
+npm run dev
 ```
 
 ## Architecture
 
 ### Deployment Model
 
-**Backend (RunPod):**
+**Two deployment options:**
+
+**Option 1: Full-Stack on RunPod (Recommended)**
+- Both services run on the same RunPod server
+- Backend: Port 8000 (internal/external via proxy)
+- Frontend: Port 3000 (internal/external via proxy)
+- Frontend connects to backend via `http://localhost:8000`
+- Simpler setup, no cross-origin issues
+- Start with: `./start-all-tmux.sh` or `./start-all.sh`
+
+**Option 2: Split Deployment**
+- Backend on RunPod A40 GPU, frontend on local machine
+- Backend: `0.0.0.0:8000` → `https://<pod-id>-8000.proxy.runpod.net`
+- Frontend: `http://localhost:3000` (local dev server)
+- Frontend connects to backend via HTTPS/WSS
+- Useful for frontend development
+
+**Backend Requirements:**
 - FastAPI server on A40 GPU (48GB VRAM)
-- Internal: `0.0.0.0:8002`
-- External: `https://<pod-id>-8002.proxy.runpod.net`
 - Model requires ~40GB VRAM (BF16), downloads on first run (~10-30 min)
 - All data stored in `/workspace` (persistent across pod restarts)
 
-**Frontend (Local Mac):**
+**Frontend Stack:**
 - React + Vite + Tailwind CSS
-- Runs on `http://localhost:3001`
-- Connects to RunPod backend via HTTPS/WSS
 - Configure backend URL in `frontend/.env`
 
 ### Key Design Patterns
@@ -163,13 +210,18 @@ TRANSFORMERS_CACHE=/workspace/huggingface_cache
 HF_DATASETS_CACHE=/workspace/huggingface_cache
 JOBS_DIR=/workspace/jobs
 HOST=0.0.0.0
-PORT=8002
+PORT=8000
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 
-**Frontend `.env` (Local):**
+**Frontend `.env` (Full-stack deployment):**
 ```bash
-VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net
+VITE_API_URL=http://localhost:8000
+```
+
+**Frontend `.env` (Split deployment):**
+```bash
+VITE_API_URL=https://<pod-id>-8000.proxy.runpod.net
 ```
 
 Note: `/workspace` is critical - everything else is deleted on RunPod pod restart.
@@ -217,7 +269,7 @@ Note: `/workspace` is critical - everything else is deleted on RunPod pod restar
 
 **Model not loading:** Check GPU VRAM (`nvidia-smi`), ensure A40 with 48GB, verify `/workspace/huggingface_cache` exists
 
-**Port 8002 not accessible:** Verify RunPod HTTP Services shows port 8002 as "Ready", check server listening on `0.0.0.0:8002` with `netstat -tlnp | grep 8002`
+**Port 8000 not accessible:** Verify RunPod HTTP Services shows port 8000 as "Ready", check server listening on `0.0.0.0:8000` with `netstat -tlnp | grep 8000`
 
 **Frontend can't connect:** Verify `VITE_API_URL` in `frontend/.env`, test backend health endpoint directly in browser
 

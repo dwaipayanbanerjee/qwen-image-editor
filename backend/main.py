@@ -35,7 +35,7 @@ os.environ['HF_DATASETS_CACHE'] = os.getenv('HF_DATASETS_CACHE', '/workspace/hug
 # Configuration
 JOBS_DIR = Path(os.getenv('JOBS_DIR', '/workspace/jobs'))
 HOST = os.getenv('HOST', '0.0.0.0')
-PORT = int(os.getenv('PORT', '8002'))
+PORT = int(os.getenv('PORT', '8000'))
 
 # Global instances
 job_manager = JobManager(JOBS_DIR)

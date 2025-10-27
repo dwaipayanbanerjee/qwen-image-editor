@@ -114,7 +114,7 @@ TRANSFORMERS_CACHE=/workspace/huggingface_cache
 HF_DATASETS_CACHE=/workspace/huggingface_cache
 JOBS_DIR=/workspace/jobs
 HOST=0.0.0.0
-PORT=8002
+PORT=8000
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 
@@ -126,7 +126,7 @@ PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 **On first run**: The model will be downloaded (~40GB, takes 10-30 minutes depending on connection speed).
 
-The server will start on port 8002. RunPod will expose this via port 8002 on the proxy URL.
+The server will start on port 8000. RunPod will expose this via port 8000 on the proxy URL.
 
 #### Step 7: Verify Backend
 
@@ -134,7 +134,7 @@ In another terminal, test the health endpoint:
 
 ```bash
 # From RunPod server
-curl http://localhost:8002/
+curl http://localhost:8000/
 
 # Expected response:
 # {"status": "online", "message": "Qwen Image Editor API is running", ...}
@@ -157,17 +157,17 @@ Edit `frontend/.env`:
 
 ```bash
 # Replace with your RunPod URL once backend is running
-VITE_API_URL=https://<your-pod-id>-8002.proxy.runpod.net
+VITE_API_URL=https://<your-pod-id>-8000.proxy.runpod.net
 
 # For your current pod, it should look like:
-# VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8002.proxy.runpod.net
+# VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net
 ```
 
 To find your exact URL:
 1. Go to RunPod dashboard
 2. Click on your pod
 3. Look for "HTTP Services" section
-4. Port 8002 should show the proxy URL
+4. Port 8000 should show the proxy URL
 
 #### Step 3: Start Frontend
 
@@ -175,7 +175,7 @@ To find your exact URL:
 npm run dev
 ```
 
-The app will open at `http://localhost:3001`
+The app will open at `http://localhost:3000`
 
 ---
 
@@ -311,9 +311,9 @@ screen -r qwen
 - Ensure A40 with 48GB VRAM
 - Check HuggingFace cache: `ls -lh /workspace/huggingface_cache`
 
-**Port 8002 not accessible:**
-- Verify server is running: `curl http://localhost:8002/`
-- Check RunPod dashboard: Ensure port 8002 is exposed
+**Port 8000 not accessible:**
+- Verify server is running: `curl http://localhost:8000/`
+- Check RunPod dashboard: Ensure port 8000 is exposed
 - Check firewall/security settings
 
 **Out of memory:**
@@ -379,7 +379,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # Edit .env to use local paths
-export PORT=8002
+export PORT=8000
 python main.py
 ```
 
@@ -403,14 +403,14 @@ TRANSFORMERS_CACHE=/workspace/huggingface_cache
 HF_DATASETS_CACHE=/workspace/huggingface_cache
 JOBS_DIR=/workspace/jobs                      # Job storage
 HOST=0.0.0.0                                  # Bind to all interfaces
-PORT=8002                                     # Internal port
+PORT=8000                                     # Internal port
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # GPU memory optimization
 ```
 
 ### Frontend `.env`
 
 ```bash
-VITE_API_URL=https://<your-pod-id>-8002.proxy.runpod.net
+VITE_API_URL=https://<your-pod-id>-8000.proxy.runpod.net
 ```
 
 ---

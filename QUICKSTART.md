@@ -41,7 +41,7 @@ From this project directory:
 This script will:
 - Check if backend is online
 - Start the frontend dev server
-- Open http://localhost:3001 in your browser
+- Open http://localhost:3000 in your browser
 
 ---
 
@@ -49,7 +49,7 @@ This script will:
 
 ### Backend is Running?
 ```bash
-curl https://YOUR-POD-ID-8002.proxy.runpod.net/
+curl https://YOUR-POD-ID-8000.proxy.runpod.net/
 ```
 
 Should return: `{"status":"online",...}`
@@ -58,7 +58,7 @@ Should return: `{"status":"online",...}`
 
 Edit `frontend/.env`:
 ```bash
-VITE_API_URL=https://YOUR-NEW-POD-URL-8002.proxy.runpod.net
+VITE_API_URL=https://YOUR-NEW-POD-URL-8000.proxy.runpod.net
 ```
 
 ### Stop Everything?
@@ -86,10 +86,10 @@ Ctrl+C
 - RunPod pod restarted (URL changed)
 - Check backend logs in RunPod terminal
 
-**"Port 3001 already in use"**
+**"Port 3000 already in use"**
 ```bash
 # Kill existing process
-lsof -ti:3001 | xargs kill -9
+lsof -ti:3000 | xargs kill -9
 # Or use a different port
 PORT=3002 npm run dev
 ```
