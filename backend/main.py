@@ -4,6 +4,16 @@ Runs on RunPod A40 GPU, designed for persistence in /workspace
 """
 
 import os
+from dotenv import load_dotenv
+
+# CRITICAL: Load .env BEFORE importing torch (via image_editor)
+# PYTORCH_CUDA_ALLOC_CONF must be set before PyTorch initialization
+load_dotenv()
+
+# Apply PyTorch memory optimization if not already set
+if 'PYTORCH_CUDA_ALLOC_CONF' not in os.environ:
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -13,7 +23,6 @@ from io import BytesIO
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from dotenv import load_dotenv
 import json
 import logging
 from PIL import Image
@@ -21,9 +30,6 @@ from PIL import Image
 from image_editor import ImageEditor
 from job_manager import JobManager, JobStatus
 from models import EditConfig, JobStatusResponse, ProgressInfo
-
-# Load environment variables
-load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -66,7 +66,7 @@ def find_existing_processes(script_dir: Path) -> List[int]:
     Find existing backend and frontend processes
     Returns list of PIDs to kill
     """
-    pids = []
+    pids = set()  # Use set to avoid duplicates
 
     # Find backend processes (uvicorn/python main.py)
     backend_dir = str(script_dir / 'backend')
@@ -78,7 +78,7 @@ def find_existing_processes(script_dir: Path) -> List[int]:
             if len(parts) > 1:
                 try:
                     pid = int(parts[1])
-                    pids.append(pid)
+                    pids.add(pid)
                     print_colored("CLEANUP", YELLOW, f"Found existing backend process: PID {pid}")
                 except ValueError:
                     pass
@@ -93,12 +93,30 @@ def find_existing_processes(script_dir: Path) -> List[int]:
             if len(parts) > 1:
                 try:
                     pid = int(parts[1])
-                    pids.append(pid)
+                    pids.add(pid)
                     print_colored("CLEANUP", YELLOW, f"Found existing frontend process: PID {pid}")
                 except ValueError:
                     pass
 
-    return pids
+    # CRITICAL: Find ANY Python processes using GPU memory (nvidia-smi)
+    # This catches orphaned processes that don't match the above patterns
+    cmd = "nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader 2>/dev/null"
+    output = run_command(cmd)
+    if output:
+        for line in output.split('\n'):
+            if line.strip():
+                parts = line.split(',')
+                if len(parts) >= 1:
+                    try:
+                        pid = int(parts[0].strip())
+                        process_name = parts[1].strip() if len(parts) > 1 else "unknown"
+                        if 'python' in process_name.lower():
+                            pids.add(pid)
+                            print_colored("CLEANUP", YELLOW, f"Found GPU process using memory: PID {pid} ({process_name})")
+                    except (ValueError, IndexError):
+                        pass
+
+    return list(pids)
 
 def kill_processes(pids: List[int]):
     """Kill processes gracefully, then forcefully if needed"""

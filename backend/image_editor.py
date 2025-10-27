@@ -41,8 +41,15 @@ class ImageEditor:
         while retry_count < max_retries:
             try:
                 from diffusers import QwenImageEditPipeline
+                import gc
 
                 logger.info(f"Loading Qwen-Image-Edit pipeline (attempt {retry_count + 1}/{max_retries})...")
+
+                # Clear GPU cache before loading (critical for retry attempts)
+                if retry_count > 0 and torch.cuda.is_available():
+                    logger.info("Clearing GPU cache before retry...")
+                    torch.cuda.empty_cache()
+                    gc.collect()
 
                 # Note: Hugging Face doesn't provide granular download progress easily,
                 # but we can report key milestones
@@ -63,10 +70,24 @@ class ImageEditor:
                     progress_callback(100)
 
                 logger.info(f"Model loaded successfully on {self.device}")
+
+                # Log GPU memory usage
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    reserved = torch.cuda.memory_reserved() / 1024**3
+                    logger.info(f"GPU Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
+
                 return
 
             except Exception as e:
                 retry_count += 1
+
+                # Aggressive cleanup on failure
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    import gc
+                    gc.collect()
+
                 if retry_count >= max_retries:
                     logger.error(f"Failed to load Qwen-Image-Edit model after {max_retries} attempts: {str(e)}")
                     raise
@@ -173,15 +194,30 @@ class ImageEditor:
             edited_image.save(output_path, **save_kwargs)
             logger.info(f"Saved edited image to: {output_path}")
 
-            # Clear GPU cache
+            # Aggressive GPU cache cleanup after inference
             if torch.cuda.is_available():
+                import gc
+                # Delete intermediate tensors
+                del output
+                del edited_image
+                del input_image
+                del images
+                # Force garbage collection
+                gc.collect()
+                # Clear PyTorch cache
                 torch.cuda.empty_cache()
+                # Log memory usage
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                logger.info(f"GPU Memory after cleanup: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
 
             return output_path
 
         except Exception as e:
-            # Clear GPU cache on error too
+            # Aggressive cleanup on error too
             if torch.cuda.is_available():
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
             logger.error(f"Error during image editing: {str(e)}")
             raise
