@@ -8,11 +8,37 @@ AI-powered image editing application using Qwen-Image-Edit (20B parameter model)
 
 ## Common Commands
 
-### Backend (RunPod Server)
+### Quick Start (Development Mode)
+
+**Simple single-terminal setup for debugging:**
 
 ```bash
 # SSH into RunPod
-ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
+ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
+
+# First-time setup only
+cd /workspace/qwen-image-editor
+cd backend && ./setup.sh && cd ..
+cd frontend && npm install && cd ..
+
+# Start both services with visible output
+./start-dev.sh
+
+# All logs appear in one terminal with color-coded prefixes
+# Press Ctrl+C to stop all services
+```
+
+**What you get:**
+- All backend and frontend logs in one terminal
+- Color-coded output: [BACKEND] in blue, [FRONTEND] in green
+- Easy debugging - see everything happening in real-time
+- Clean shutdown with Ctrl+C stops both services
+
+### Backend (RunPod Server)
+
+```bash
+# SSH into RunPod (replace with your server details)
+ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
 
 # Navigate to backend
 cd /workspace/qwen-image-editor/backend
@@ -29,6 +55,12 @@ screen -S qwen
 # Detach: Ctrl+A, then D
 # Reattach: screen -r qwen
 
+# Manage tmux sessions (when using start-all-tmux.sh)
+tmux attach -t qwen-image-editor  # Attach to session
+# Switch windows: Ctrl+B, then 0 (backend) or 1 (frontend)
+# Detach: Ctrl+B, then D
+tmux kill-session -t qwen-image-editor  # Stop all services
+
 # Monitor GPU
 nvidia-smi
 watch -n 1 nvidia-smi
@@ -42,11 +74,11 @@ python cleanup.py --job <job_id>     # Clean specific job
 python cleanup.py --all              # Clean all jobs
 ```
 
-### Frontend (Local Mac)
+### Frontend (Local Development)
 
 ```bash
-# Navigate to frontend
-cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor/frontend
+# Navigate to frontend (adjust path to your local repo)
+cd /path/to/qwen-image-editor/frontend
 
 # Install dependencies (first time only)
 npm install
@@ -70,11 +102,11 @@ npm run preview
 git push origin main
 
 # 2. SSH into RunPod
-ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
+ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
 
 # 3. First-time setup: Clone repository
 cd /workspace
-git clone https://github.com/dwaipayanbanerjee/qwen-image-editor.git
+git clone https://github.com/<YOUR_USERNAME>/qwen-image-editor.git
 cd qwen-image-editor
 
 # 4. Or update existing: Pull latest changes
@@ -89,9 +121,7 @@ npm install  # Install frontend dependencies
 
 # 6. Start both services
 cd /workspace/qwen-image-editor
-./start-all-tmux.sh  # Recommended: tmux session management
-# OR
-./start-all.sh       # Alternative: background processes
+./start-all-tmux.sh
 
 # 7. Access services (expose ports 8000 and 3000 in RunPod HTTP Services)
 # Frontend: https://<pod-id>-3000.proxy.runpod.net
@@ -101,8 +131,8 @@ cd /workspace/qwen-image-editor
 **Method 2: Using SCP (Alternative)**
 
 ```bash
-# For quick file transfers without git
-scp -P 22101 -i ~/.ssh/id_ed25519 -r backend frontend start-all*.sh root@69.30.85.14:/workspace/qwen-image-editor/
+# For quick file transfers without git (adjust SERVER_IP and SSH_PORT)
+scp -P <SSH_PORT> -i ~/.ssh/id_ed25519 -r backend frontend start-all-tmux.sh root@<SERVER_IP>:/workspace/qwen-image-editor/
 ```
 
 ### Split Deployment (Backend on RunPod, Frontend Local)
@@ -111,15 +141,15 @@ scp -P 22101 -i ~/.ssh/id_ed25519 -r backend frontend start-all*.sh root@69.30.8
 
 ```bash
 # On RunPod: Clone/pull repository
-ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
+ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
 cd /workspace
-git clone https://github.com/dwaipayanbanerjee/qwen-image-editor.git
+git clone https://github.com/<YOUR_USERNAME>/qwen-image-editor.git
 cd qwen-image-editor/backend
 ./setup.sh  # First time only
 ./start.sh
 
 # On local machine: Run frontend
-cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor/frontend
+cd /path/to/qwen-image-editor/frontend
 # Update .env with: VITE_API_URL=https://<pod-id>-8000.proxy.runpod.net
 npm run dev
 ```
@@ -127,8 +157,8 @@ npm run dev
 **Method 2: Using SCP (Alternative)**
 
 ```bash
-# Deploy only backend
-scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-image-editor/backend/
+# Deploy only backend (adjust SERVER_IP and SSH_PORT)
+scp -P <SSH_PORT> -i ~/.ssh/id_ed25519 -r backend/* root@<SERVER_IP>:/workspace/qwen-image-editor/backend/
 ```
 
 ## Architecture
@@ -143,7 +173,7 @@ scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-
 - Frontend: Port 3000 (internal/external via proxy)
 - Frontend connects to backend via `http://localhost:8000`
 - Simpler setup, no cross-origin issues
-- Start with: `./start-all-tmux.sh` or `./start-all.sh`
+- Start with: `./start-all-tmux.sh`
 
 **Option 2: Split Deployment**
 - Backend on RunPod A40 GPU, frontend on local machine
@@ -163,10 +193,10 @@ scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-
 
 ### Key Design Patterns
 
-**Sequential Job Processing:**
-- Jobs queued using `asyncio.Queue` to prevent GPU OOM
-- Worker thread in `main.py:process_generation_queue()` processes one job at a time
+**Direct Job Processing:**
+- Jobs processed immediately as background tasks when submitted
 - Background task system allows non-blocking API responses
+- Single GPU instance shared across all requests
 
 **Lazy Model Loading:**
 - Model loaded on first edit request only (`main.py:63-76`)
@@ -192,7 +222,7 @@ scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-
 ### Code Architecture
 
 **Backend Structure:**
-- `main.py` - FastAPI app, routes, WebSocket, queue worker
+- `main.py` - FastAPI app, routes, WebSocket, background task processing
 - `image_editor.py` - Qwen model wrapper, inference logic
 - `job_manager.py` - Job lifecycle, state management, WebSocket registry
 - `models.py` - Pydantic schemas for validation
@@ -207,9 +237,9 @@ scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-
 
 **Data Flow:**
 1. User uploads images → Frontend validates → POST `/api/edit`
-2. Backend saves to `/workspace/jobs/{job_id}/` → Returns job_id → Queues job
+2. Backend saves to `/workspace/jobs/{job_id}/` → Returns job_id → Starts processing
 3. Frontend connects WebSocket → `/ws/{job_id}`
-4. Worker processes job → Broadcasts progress via WebSocket
+4. Background task processes job → Broadcasts progress via WebSocket
 5. Complete → Frontend downloads → Backend auto-cleans job files
 
 ### Storage Layout

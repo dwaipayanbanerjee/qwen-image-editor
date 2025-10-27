@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 class JobStatus(str, Enum):
     """Job status enumeration"""
-    QUEUED = "queued"
     PROCESSING = "processing"
     COMPLETE = "complete"
     ERROR = "error"
@@ -84,7 +83,7 @@ class JobManager:
         with self.lock:
             self.jobs[job_id] = {
                 'job_id': job_id,
-                'status': JobStatus.QUEUED.value,
+                'status': JobStatus.PROCESSING.value,
                 'config': config,
                 'progress': None,
                 'error': None,

@@ -1,20 +1,25 @@
-import { useState, useEffect } from 'react'
-import { createWebSocket, downloadImage, deleteJob } from '../utils/api'
+import { useState, useEffect, useRef } from 'react'
+import { getJobStatus, downloadImage, deleteJob } from '../utils/api'
 
 export default function ProgressTracker({ jobId, onComplete, onError, onCancel, onRestart }) {
-  const [status, setStatus] = useState('queued')
+  const [status, setStatus] = useState('processing')
   const [progress, setProgress] = useState(null)
   const [error, setError] = useState(null)
-  const [ws, setWs] = useState(null)
+  const [connectionMethod, setConnectionMethod] = useState('polling')
+  const pollingIntervalRef = useRef(null)
 
   useEffect(() => {
     if (!jobId) return
 
-    // Create WebSocket connection
-    const websocket = createWebSocket(
-      jobId,
-      (data) => {
-        // Handle incoming WebSocket messages
+    console.log(`Starting HTTP polling for job ${jobId}`)
+    setConnectionMethod('polling')
+
+    // Poll job status every 1.5 seconds
+    const pollJobStatus = async () => {
+      try {
+        const response = await getJobStatus(jobId)
+        const data = response.data
+
         setStatus(data.status)
         setProgress(data.progress)
 
@@ -22,23 +27,37 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
           setError(data.error)
         }
 
+        // Stop polling if job is complete or errored
         if (data.status === 'complete') {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current)
+            pollingIntervalRef.current = null
+          }
           onComplete()
         } else if (data.status === 'error') {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current)
+            pollingIntervalRef.current = null
+          }
           onError(data.error || 'Unknown error occurred')
         }
-      },
-      (err) => {
-        console.error('WebSocket error:', err)
+      } catch (err) {
+        console.error('Polling error:', err)
+        // Continue polling even on error
       }
-    )
+    }
 
-    setWs(websocket)
+    // Initial poll
+    pollJobStatus()
+
+    // Set up polling interval
+    pollingIntervalRef.current = setInterval(pollJobStatus, 1500)
 
     // Cleanup on unmount
     return () => {
-      if (websocket) {
-        websocket.close()
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
       }
     }
   }, [jobId, onComplete, onError])
@@ -54,8 +73,13 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
 
   const handleCancel = async () => {
     try {
+      // Stop polling
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
+
       await deleteJob(jobId)
-      if (ws) ws.close()
       onCancel()
     } catch (err) {
       console.error('Cancel error:', err)
@@ -64,8 +88,6 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
 
   const getStatusColor = () => {
     switch (status) {
-      case 'queued':
-        return 'text-yellow-600 bg-yellow-50'
       case 'processing':
         return 'text-blue-600 bg-blue-50'
       case 'complete':
@@ -79,13 +101,6 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
 
   const getStatusIcon = () => {
     switch (status) {
-      case 'queued':
-        return (
-          <svg className="animate-spin h-8 w-8 text-yellow-500" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-          </svg>
-        )
       case 'processing':
         return (
           <svg className="animate-spin h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24">
@@ -127,21 +142,30 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
           </div>
         </div>
 
+        {/* Connection Method Info */}
+        <div className="text-xs text-center text-gray-400">
+          Using {connectionMethod} for updates
+        </div>
+
         {/* Progress Information */}
         {progress && (
           <div className="bg-gray-50 rounded-lg p-6">
             <div className="space-y-4">
               {/* Stage */}
-              <div>
-                <p className="text-sm text-gray-600">Stage</p>
-                <p className="text-lg font-semibold text-gray-800">{progress.stage}</p>
-              </div>
+              {progress.stage && (
+                <div>
+                  <p className="text-sm text-gray-600">Stage</p>
+                  <p className="text-lg font-semibold text-gray-800">{progress.stage}</p>
+                </div>
+              )}
 
               {/* Message */}
-              <div>
-                <p className="text-sm text-gray-600">Status</p>
-                <p className="text-lg text-gray-800">{progress.message}</p>
-              </div>
+              {progress.message && (
+                <div>
+                  <p className="text-sm text-gray-600">Status</p>
+                  <p className="text-lg text-gray-800">{progress.message}</p>
+                </div>
+              )}
 
               {/* Progress Bar */}
               {progress.progress !== undefined && (
@@ -198,7 +222,7 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
             </>
           )}
 
-          {(status === 'queued' || status === 'processing') && (
+          {status === 'processing' && (
             <button
               onClick={handleCancel}
               className="px-6 py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors"

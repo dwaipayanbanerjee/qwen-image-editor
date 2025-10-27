@@ -1,7 +1,28 @@
 import axios from 'axios'
 
-// Get API URL from environment or default to localhost
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// Get API URL from environment or auto-detect based on hostname
+const getApiUrl = () => {
+  // If explicitly set in environment, use that
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+  }
+
+  // Auto-detect RunPod proxy URL
+  // Example: https://2ww93nrkflzjy2-3000.proxy.runpod.net -> https://2ww93nrkflzjy2-8000.proxy.runpod.net
+  if (typeof window !== 'undefined' && window.location.hostname.includes('proxy.runpod.net')) {
+    const protocol = window.location.protocol
+    const hostname = window.location.hostname.replace(/-3000\./, '-8000.')
+    return `${protocol}//${hostname}`
+  }
+
+  // Default to localhost
+  return 'http://localhost:8000'
+}
+
+const API_URL = getApiUrl()
+
+// Log the API URL for debugging
+console.log('API URL:', API_URL)
 
 // Create axios instance with default config
 export const api = axios.create({

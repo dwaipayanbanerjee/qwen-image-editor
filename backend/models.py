@@ -9,7 +9,6 @@ from enum import Enum
 
 class JobStatus(str, Enum):
     """Job status enumeration"""
-    QUEUED = "queued"
     PROCESSING = "processing"
     COMPLETE = "complete"
     ERROR = "error"

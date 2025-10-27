@@ -40,24 +40,6 @@ PORT = int(os.getenv('PORT', '8000'))
 # Global instances
 job_manager = JobManager(JOBS_DIR)
 image_editor: Optional[ImageEditor] = None
-generation_queue = asyncio.Queue()
-
-
-async def process_generation_queue():
-    """Background worker to process image editing jobs sequentially"""
-    global image_editor
-
-    while True:
-        job_id = await generation_queue.get()
-        logger.info(f"Processing job {job_id}")
-
-        try:
-            await generate_image_task(job_id)
-        except Exception as e:
-            logger.error(f"Error processing job {job_id}: {str(e)}")
-            job_manager.set_status(job_id, JobStatus.ERROR, error=str(e))
-        finally:
-            generation_queue.task_done()
 
 
 async def generate_image_task(job_id: str):
@@ -70,7 +52,8 @@ async def generate_image_task(job_id: str):
         job_manager.update_progress(
             job_id,
             stage="loading_model",
-            message="Loading Qwen model (first time only)..."
+            message="Loading Qwen model (first time only, ~10-30 min)...",
+            progress=5
         )
         image_editor = ImageEditor()
         logger.info("Model loaded successfully")
@@ -102,9 +85,8 @@ async def generate_image_task(job_id: str):
             progress=progress
         )
 
-    # Update status to processing
-    job_manager.set_status(job_id, JobStatus.PROCESSING)
-    progress_callback("editing", "Starting image editing...", 0)
+    # Start image editing
+    progress_callback("editing", "Starting image editing...", 10)
 
     try:
         # Run image editing in executor to avoid blocking
@@ -139,14 +121,10 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Qwen Image Editor API...")
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Start background worker
-    worker_task = asyncio.create_task(process_generation_queue())
-
     yield
 
     # Shutdown
     logger.info("Shutting down...")
-    worker_task.cancel()
 
 
 # FastAPI app
@@ -157,13 +135,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS middleware with WebSocket support
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 
@@ -226,13 +205,13 @@ async def edit_image(
 
         logger.info(f"Created job {job_id} with {2 if image2 else 1} image(s)")
 
-        # Queue for processing
-        await generation_queue.put(job_id)
+        # Start processing immediately in background
+        asyncio.create_task(generate_image_task(job_id))
 
         return {
             "job_id": job_id,
-            "status": "queued",
-            "message": "Image editing job created and queued"
+            "status": "processing",
+            "message": "Image editing job created and processing"
         }
 
     except json.JSONDecodeError:
@@ -366,5 +345,10 @@ if __name__ == "__main__":
         "main:app",
         host=HOST,
         port=PORT,
-        log_level="info"
+        log_level="info",
+        ws_ping_interval=20,  # Send ping every 20 seconds
+        ws_ping_timeout=20,   # Wait 20 seconds for pong
+        timeout_keep_alive=75,  # Keep connections alive longer
+        proxy_headers=True,   # Trust proxy headers (X-Forwarded-*)
+        forwarded_allow_ips="*"  # Allow all IPs for proxy forwarding
     )
