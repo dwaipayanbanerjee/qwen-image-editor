@@ -7,6 +7,6 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
-    open: true,
+    open: false,  // Don't auto-open browser (causes errors in headless environments)
   },
 })

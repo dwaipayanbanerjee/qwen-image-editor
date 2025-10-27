@@ -50,21 +50,59 @@ class JobManager:
         self._load_jobs_from_disk()
 
     def _load_jobs_from_disk(self):
-        """Load existing job metadata from disk on startup"""
+        """
+        Load existing job metadata from disk on startup
+        Clean up corrupted or old jobs automatically
+        """
         if not self.jobs_dir.exists():
             return
+
+        cleaned_count = 0
+        loaded_count = 0
 
         for job_dir in self.jobs_dir.iterdir():
             if job_dir.is_dir():
                 metadata_file = job_dir / 'metadata.json'
-                if metadata_file.exists():
+
+                # If metadata file doesn't exist or is empty, delete the job
+                if not metadata_file.exists() or metadata_file.stat().st_size == 0:
+                    logger.warning(f"Removing job {job_dir.name} - missing or empty metadata")
                     try:
-                        with open(metadata_file, 'r') as f:
-                            job_data = json.load(f)
-                            self.jobs[job_dir.name] = job_data
-                            logger.info(f"Loaded job {job_dir.name} from disk")
+                        shutil.rmtree(job_dir)
+                        cleaned_count += 1
                     except Exception as e:
-                        logger.error(f"Error loading job {job_dir.name}: {str(e)}")
+                        logger.error(f"Error removing corrupted job {job_dir.name}: {str(e)}")
+                    continue
+
+                try:
+                    with open(metadata_file, 'r') as f:
+                        job_data = json.load(f)
+
+                    # Only load completed or error jobs (not processing)
+                    # Processing jobs from previous run are invalid
+                    if job_data.get('status') == 'processing':
+                        logger.info(f"Removing stale processing job {job_dir.name} from previous run")
+                        shutil.rmtree(job_dir)
+                        cleaned_count += 1
+                    else:
+                        self.jobs[job_dir.name] = job_data
+                        loaded_count += 1
+                        logger.info(f"Loaded job {job_dir.name} from disk")
+
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Removing job {job_dir.name} - corrupted metadata: {str(e)}")
+                    try:
+                        shutil.rmtree(job_dir)
+                        cleaned_count += 1
+                    except Exception as e:
+                        logger.error(f"Error removing corrupted job {job_dir.name}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error loading job {job_dir.name}: {str(e)}")
+
+        if cleaned_count > 0:
+            logger.info(f"Cleaned up {cleaned_count} corrupted/stale jobs on startup")
+        if loaded_count > 0:
+            logger.info(f"Loaded {loaded_count} valid jobs from disk")
 
     def create_job(self, config: dict) -> str:
         """

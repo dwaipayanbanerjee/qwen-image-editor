@@ -8,7 +8,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional
 from pathlib import Path
-import imghdr
+from io import BytesIO
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from dotenv import load_dotenv
 import json
 import logging
+from PIL import Image
 
 from image_editor import ImageEditor
 from job_manager import JobManager, JobStatus
@@ -71,12 +72,27 @@ async def validate_image_file(file: UploadFile, max_size: int = MAX_FILE_SIZE) -
             detail=f"File too large. Maximum size is {max_size // (1024*1024)}MB"
         )
 
-    # Validate actual image format using magic bytes
-    image_type = imghdr.what(None, h=content)
-    if image_type not in ['jpeg', 'jpg', 'png', 'webp', 'bmp']:
+    # Validate actual image format using PIL
+    try:
+        img = Image.open(BytesIO(content))
+        image_format = img.format.lower() if img.format else None
+
+        # Verify image can be loaded
+        img.verify()
+
+        # Check format is supported
+        allowed_formats = ['jpeg', 'png', 'webp', 'bmp', 'jpg']
+        if image_format not in allowed_formats:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid image format. Allowed: JPEG, PNG, WebP, BMP. Detected: {image_format or 'unknown'}"
+            )
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid image format. Allowed: JPEG, PNG, WebP, BMP. Detected: {image_type or 'unknown'}"
+            detail=f"Invalid or corrupted image file: {str(e)}"
         )
 
     return content
@@ -103,15 +119,34 @@ async def generate_image_task(job_id: str) -> None:
                 job_manager.update_progress(
                     job_id,
                     stage="loading_model",
-                    message="Loading Qwen model (first time only, ~10-30 min)...",
+                    message="Loading Qwen model (first time: ~10-30 min, subsequent: ~30 sec)...",
                     progress=5
                 )
-                image_editor = ImageEditor(progress_callback=lambda p: job_manager.update_progress(
+
+                # Create progress callback that updates job progress
+                def model_loading_callback(progress_percent):
+                    """Callback for model loading progress"""
+                    if progress_percent < 80:
+                        message = f"Downloading model files... {progress_percent}%"
+                    else:
+                        message = f"Loading model to GPU... {progress_percent}%"
+
+                    job_manager.update_progress(
+                        job_id,
+                        stage="loading_model",
+                        message=message,
+                        progress=5 + int(progress_percent * 0.15)  # 5-20%
+                    )
+
+                image_editor = ImageEditor(progress_callback=model_loading_callback)
+
+                # Mark model loading complete
+                job_manager.update_progress(
                     job_id,
                     stage="loading_model",
-                    message=f"Downloading model... {p}%",
-                    progress=5 + int(p * 0.15)  # 5-20%
-                ))
+                    message="Model loaded successfully",
+                    progress=20
+                )
                 logger.info("Model loaded successfully")
 
             # Get job metadata
