@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+dist-ssr/
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Model cache (too large for git)
+huggingface_cache/
+models/
+*.safetensors
+*.bin
+*.pth
+
+# Job files
+jobs/
+*.jpg
+*.png
+*.jpeg
+*.webp
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
