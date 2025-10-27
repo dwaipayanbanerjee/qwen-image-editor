@@ -1,0 +1,5 @@
+#!/bin/bash
+# Qwen Image Editor - Simple Entrypoint
+# Just runs the Python startup script
+
+exec python3 "$(dirname "$0")/start-foreground.py" "$@"

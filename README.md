@@ -2,6 +2,21 @@
 
 AI-powered image editing application using the Qwen-Image-Edit model (20B parameters). Edit single images or combine two images with natural language prompts.
 
+## 🚀 Quick Start (Single Command)
+
+```bash
+./start
+```
+
+That's it! This single script:
+- ✅ Kills any existing instances automatically
+- ✅ Validates your setup
+- ✅ Starts both backend and frontend
+- ✅ Shows all logs in one terminal (color-coded)
+- ✅ Cleans up everything when you press Ctrl+C
+
+**First time?** Run `cd backend && ./setup.sh` first to install dependencies.
+
 ## Architecture
 
 - **Backend**: FastAPI server running on RunPod A40 GPU (48GB VRAM)

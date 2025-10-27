@@ -1,105 +1,136 @@
 # Quick Start Guide
 
-## Why Two Servers?
+## First Time Setup
 
-This application has a **split architecture** for a good reason:
+```bash
+# 1. Clone the repo
+cd /workspace
+git clone https://github.com/<YOUR_USERNAME>/qwen-image-editor.git
+cd qwen-image-editor
 
-- **Backend (RunPod):** Requires A40 GPU with 48GB VRAM to run the 20B parameter Qwen model
-- **Frontend (Your Mac):** Runs locally for fast development and easy access
+# 2. Set up backend (one time only)
+cd backend
+./setup.sh  # Downloads model (~40GB), takes 10-30 min
+cd ..
 
-Your Mac doesn't have the GPU hardware needed for the backend, so it **must** run on RunPod.
+# 3. Start everything
+./start
+```
+
+Done! Access at:
+- Frontend: `https://<pod-id>-3000.proxy.runpod.net`
+- Backend: `https://<pod-id>-8000.proxy.runpod.net`
 
 ---
 
-## Starting the Application
-
-### Step 1: Start Backend (RunPod) - One Time Setup
-
-Open a terminal and SSH into RunPod (keep this terminal open):
+## Every Subsequent Start
 
 ```bash
-ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
-cd /workspace/qwen-image-editor/backend
-./start.sh
+cd /workspace/qwen-image-editor
+./start
 ```
 
-**Tip:** Use `screen` to keep it running in background:
-```bash
-screen -S qwen
-./start.sh
-# Press Ctrl+A, then D to detach
-```
+That's it! The script:
+- ✅ Kills any old instances
+- ✅ Validates setup
+- ✅ Starts both services
+- ✅ Shows all logs (color-coded)
 
-### Step 2: Start Frontend (Your Mac) - Every Time
-
-From this project directory:
-
-```bash
-./start-frontend.sh
-```
-
-This script will:
-- Check if backend is online
-- Start the frontend dev server
-- Open http://localhost:3000 in your browser
+Press **Ctrl+C** to stop everything.
 
 ---
 
-## Quick Reference
+## Updating Code
 
-### Backend is Running?
 ```bash
-curl https://YOUR-POD-ID-8000.proxy.runpod.net/
+# On your local machine
+git add .
+git commit -m "Your changes"
+git push origin main
+
+# On RunPod
+cd /workspace/qwen-image-editor
+git pull
+./start  # Automatically restarts with new code
 ```
 
-Should return: `{"status":"online",...}`
+---
 
-### Update Backend URL?
+## Common Tasks
 
-Edit `frontend/.env`:
+### View GPU Usage
 ```bash
-VITE_API_URL=https://YOUR-NEW-POD-URL-8000.proxy.runpod.net
+nvidia-smi
+# or watch it live
+watch -n 1 nvidia-smi
 ```
 
-### Stop Everything?
-
-**Frontend:** Press `Ctrl+C` in the terminal running the frontend
-
-**Backend:**
+### Clean Up Old Jobs
 ```bash
-# In RunPod SSH terminal
-Ctrl+C
+cd backend
+source venv/bin/activate
+python cleanup.py --all  # Removes all jobs
 ```
+
+### View Logs
+All logs appear in the terminal when you run `./start`
 
 ---
 
 ## Troubleshooting
 
-**"Backend is NOT responding"**
-1. Check RunPod dashboard - is the pod running?
-2. Get the current proxy URL from "HTTP Services" section
-3. Update `frontend/.env` with the new URL
-4. SSH into RunPod and start backend: `./start.sh`
-
-**"502 Error"**
-- Backend server stopped or crashed
-- RunPod pod restarted (URL changed)
-- Check backend logs in RunPod terminal
-
-**"Port 3000 already in use"**
+### "Port already in use"
+The `./start` script should auto-kill old processes. If it doesn't:
 ```bash
-# Kill existing process
-lsof -ti:3000 | xargs kill -9
-# Or use a different port
-PORT=3002 npm run dev
+# Manual cleanup
+pkill -f uvicorn
+pkill -f npm
+./start
+```
+
+### "Backend not responding"
+Check the logs in the terminal where `./start` is running. Look for errors in blue `[BACKEND]` lines.
+
+### "Frontend can't connect"
+Check `frontend/.env`:
+```bash
+# For RunPod full-stack
+VITE_API_URL=http://localhost:8000
+
+# For split deployment
+VITE_API_URL=https://<pod-id>-8000.proxy.runpod.net
+```
+
+### "Model loading stuck"
+First-time model download takes 10-30 minutes. You'll see:
+```
+[BACKEND] Downloading model files... 45%
+```
+
+Just wait - it's working!
+
+---
+
+## File Structure
+
+```
+qwen-image-editor/
+├── start                    # ← RUN THIS
+├── start-foreground.py      # (called by ./start)
+├── backend/
+│   ├── setup.sh            # First-time setup
+│   └── start.sh            # Internal use
+└── frontend/
+    └── .env                # API URL config
 ```
 
 ---
 
-## Daily Workflow
+## That's It!
 
-1. **Morning:** SSH into RunPod, start backend once
-2. **Work:** Use `./start-frontend.sh` on your Mac whenever you want to use the app
-3. **Evening:** Stop frontend (Ctrl+C), optionally stop backend
+Remember:
+1. **First time**: `cd backend && ./setup.sh`
+2. **Every time**: `./start`
+3. **Stop**: Press **Ctrl+C**
 
-The backend can stay running on RunPod 24/7 if you want!
+Simple as that! 🚀

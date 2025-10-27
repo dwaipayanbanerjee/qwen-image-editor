@@ -8,31 +8,39 @@ AI-powered image editing application using Qwen-Image-Edit (20B parameter model)
 
 ## Common Commands
 
-### Quick Start (Development Mode)
+### Quick Start (Single Command)
 
-**Simple single-terminal setup for debugging:**
+**The ONLY command you need:**
 
 ```bash
 # SSH into RunPod
 ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
 
-# First-time setup only
+# Navigate to project
 cd /workspace/qwen-image-editor
+
+# First-time setup only (one time)
 cd backend && ./setup.sh && cd ..
-cd frontend && npm install && cd ..
 
-# Start both services with visible output
-./start-dev.sh
-
-# All logs appear in one terminal with color-coded prefixes
-# Press Ctrl+C to stop all services
+# Start everything (every time)
+./start
 ```
+
+**What the ./start script does:**
+1. ✅ Finds and kills any existing backend/frontend processes
+2. ✅ Validates environment (checks venv, node_modules)
+3. ✅ Auto-installs frontend deps if missing
+4. ✅ Starts backend (port 8000) and frontend (port 3000)
+5. ✅ Shows all logs in one terminal with color-coded prefixes
+6. ✅ Handles Ctrl+C gracefully (kills all processes cleanly)
 
 **What you get:**
 - All backend and frontend logs in one terminal
 - Color-coded output: [BACKEND] in blue, [FRONTEND] in green
+- Automatic cleanup of old instances (no port conflicts)
 - Easy debugging - see everything happening in real-time
 - Clean shutdown with Ctrl+C stops both services
+- No zombie processes left behind
 
 ### Backend (RunPod Server)
 
@@ -46,20 +54,9 @@ cd /workspace/qwen-image-editor/backend
 # First-time setup (creates venv, installs deps, downloads model)
 ./setup.sh
 
-# Start backend server (port 8000)
+# Start backend server (port 8000) - internal use only
+# Note: You should normally use ./start from project root
 ./start.sh
-
-# Run in background with screen
-screen -S qwen
-./start.sh
-# Detach: Ctrl+A, then D
-# Reattach: screen -r qwen
-
-# Manage tmux sessions (when using start-all-tmux.sh)
-tmux attach -t qwen-image-editor  # Attach to session
-# Switch windows: Ctrl+B, then 0 (backend) or 1 (frontend)
-# Detach: Ctrl+B, then D
-tmux kill-session -t qwen-image-editor  # Stop all services
 
 # Monitor GPU
 nvidia-smi
@@ -95,7 +92,7 @@ npm run preview
 
 ### Full-Stack Deployment (RunPod) - Recommended
 
-**Method 1: Using Git (Recommended)**
+**Using Git (Recommended)**
 
 ```bash
 # 1. Push latest changes to GitHub (on local machine)
@@ -116,35 +113,30 @@ git pull origin main
 # 5. Initial setup (first time only)
 cd backend
 ./setup.sh  # Sets up venv, installs deps, downloads model (~10-30 min)
-cd ../frontend
-npm install  # Install frontend dependencies
+cd ..
 
-# 6. Start both services
-cd /workspace/qwen-image-editor
-./start-all-tmux.sh
+# 6. Start both services (SINGLE COMMAND)
+./start
+
+# The script will:
+# - Auto-kill any existing instances
+# - Validate setup (auto-install frontend deps if needed)
+# - Start both services with color-coded logs
+# - Handle Ctrl+C cleanup gracefully
 
 # 7. Access services (expose ports 8000 and 3000 in RunPod HTTP Services)
 # Frontend: https://<pod-id>-3000.proxy.runpod.net
 # Backend:  https://<pod-id>-8000.proxy.runpod.net
 ```
 
-**Method 2: Using SCP (Alternative)**
-
-```bash
-# For quick file transfers without git (adjust SERVER_IP and SSH_PORT)
-scp -P <SSH_PORT> -i ~/.ssh/id_ed25519 -r backend frontend start-all-tmux.sh root@<SERVER_IP>:/workspace/qwen-image-editor/
-```
-
 ### Split Deployment (Backend on RunPod, Frontend Local)
 
-**Method 1: Using Git (Recommended)**
+**If you want to run backend on RunPod and frontend locally:**
 
 ```bash
-# On RunPod: Clone/pull repository
+# On RunPod: Start backend only
 ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
-cd /workspace
-git clone https://github.com/<YOUR_USERNAME>/qwen-image-editor.git
-cd qwen-image-editor/backend
+cd /workspace/qwen-image-editor/backend
 ./setup.sh  # First time only
 ./start.sh
 
@@ -152,13 +144,6 @@ cd qwen-image-editor/backend
 cd /path/to/qwen-image-editor/frontend
 # Update .env with: VITE_API_URL=https://<pod-id>-8000.proxy.runpod.net
 npm run dev
-```
-
-**Method 2: Using SCP (Alternative)**
-
-```bash
-# Deploy only backend (adjust SERVER_IP and SSH_PORT)
-scp -P <SSH_PORT> -i ~/.ssh/id_ed25519 -r backend/* root@<SERVER_IP>:/workspace/qwen-image-editor/backend/
 ```
 
 ## Architecture
@@ -173,7 +158,7 @@ scp -P <SSH_PORT> -i ~/.ssh/id_ed25519 -r backend/* root@<SERVER_IP>:/workspace/
 - Frontend: Port 3000 (internal/external via proxy)
 - Frontend connects to backend via `http://localhost:8000`
 - Simpler setup, no cross-origin issues
-- Start with: `./start-all-tmux.sh`
+- Start with: `./start` (single command)
 
 **Option 2: Split Deployment**
 - Backend on RunPod A40 GPU, frontend on local machine
