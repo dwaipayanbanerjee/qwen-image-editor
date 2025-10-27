@@ -61,46 +61,74 @@ npm run build
 npm run preview
 ```
 
-### Full-Stack Deployment (RunPod)
+### Full-Stack Deployment (RunPod) - Recommended
+
+**Method 1: Using Git (Recommended)**
 
 ```bash
-# Deploy all files to RunPod
-cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor
-scp -P 22101 -i ~/.ssh/id_ed25519 -r backend frontend start-all*.sh root@69.30.85.14:/workspace/qwen-image-editor/
+# 1. Push latest changes to GitHub (on local machine)
+git push origin main
 
-# SSH into RunPod and start both services
+# 2. SSH into RunPod
 ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
+
+# 3. First-time setup: Clone repository
+cd /workspace
+git clone https://github.com/dwaipayanbanerjee/qwen-image-editor.git
+cd qwen-image-editor
+
+# 4. Or update existing: Pull latest changes
 cd /workspace/qwen-image-editor
+git pull origin main
 
-# Option 1: Using tmux (recommended)
-./start-all-tmux.sh
+# 5. Initial setup (first time only)
+cd backend
+./setup.sh  # Sets up venv, installs deps, downloads model (~10-30 min)
+cd ../frontend
+npm install  # Install frontend dependencies
 
-# Option 2: Using background processes
-./start-all.sh
+# 6. Start both services
+cd /workspace/qwen-image-editor
+./start-all-tmux.sh  # Recommended: tmux session management
+# OR
+./start-all.sh       # Alternative: background processes
 
-# Access services (expose ports 8000 and 3000 in RunPod HTTP Services)
+# 7. Access services (expose ports 8000 and 3000 in RunPod HTTP Services)
 # Frontend: https://<pod-id>-3000.proxy.runpod.net
 # Backend:  https://<pod-id>-8000.proxy.runpod.net
 ```
 
-### Split Deployment (Backend on RunPod, Frontend Local)
+**Method 2: Using SCP (Alternative)**
 
 ```bash
-# Deploy only backend to RunPod
-cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor
-scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-image-editor/backend/
+# For quick file transfers without git
+scp -P 22101 -i ~/.ssh/id_ed25519 -r backend frontend start-all*.sh root@69.30.85.14:/workspace/qwen-image-editor/
+```
 
-# Start backend on RunPod
+### Split Deployment (Backend on RunPod, Frontend Local)
+
+**Method 1: Using Git (Recommended)**
+
+```bash
+# On RunPod: Clone/pull repository
 ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
-cd /workspace/qwen-image-editor/backend
+cd /workspace
+git clone https://github.com/dwaipayanbanerjee/qwen-image-editor.git
+cd qwen-image-editor/backend
+./setup.sh  # First time only
 ./start.sh
 
-# Configure frontend .env locally
-# Update frontend/.env with: VITE_API_URL=https://<pod-id>-8000.proxy.runpod.net
-
-# Start frontend locally
+# On local machine: Run frontend
 cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor/frontend
+# Update .env with: VITE_API_URL=https://<pod-id>-8000.proxy.runpod.net
 npm run dev
+```
+
+**Method 2: Using SCP (Alternative)**
+
+```bash
+# Deploy only backend
+scp -P 22101 -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-image-editor/backend/
 ```
 
 ## Architecture
