@@ -141,6 +141,24 @@ class JobManager:
         with self.lock:
             return self.jobs.get(job_id)
 
+    def update_job_data(self, job_id: str, updates: dict) -> None:
+        """
+        Update job data fields and save to disk
+
+        Args:
+            job_id: Job identifier
+            updates: Dictionary of fields to update
+        """
+        with self.lock:
+            if job_id not in self.jobs:
+                logger.warning(f"Job {job_id} not found")
+                return
+            self.jobs[job_id].update(updates)
+
+        # Save to disk immediately
+        self._save_job_metadata(job_id, force=True)
+        logger.info(f"Updated job {job_id} data: {list(updates.keys())}")
+
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Set the event loop for WebSocket broadcasting"""
         self.event_loop = loop

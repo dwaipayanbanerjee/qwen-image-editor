@@ -29,7 +29,8 @@ from PIL import Image
 
 from image_editor import ImageEditor
 from job_manager import JobManager, JobStatus
-from models import EditConfig, JobStatusResponse, ProgressInfo
+from models import EditConfig, JobStatusResponse, ProgressInfo, ModelType
+from replicate_client import ReplicateClient, SEEDREAM_PRICE_PER_IMAGE
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,6 +51,7 @@ ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://loc
 # Global instances
 job_manager = JobManager(JOBS_DIR)
 image_editor: Optional[ImageEditor] = None
+replicate_client: Optional[ReplicateClient] = None
 job_queue: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit concurrent jobs
 active_job_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)  # Only 1 job at a time on GPU
 executor_futures: Dict[str, Any] = {}  # Track futures for cleanup
@@ -105,14 +107,139 @@ async def validate_image_file(file: UploadFile, max_size: int = MAX_FILE_SIZE) -
     return content
 
 
+async def generate_image_seedream(job_id: str) -> None:
+    """
+    Execute image generation using Seedream-4 via Replicate API
+    """
+    global replicate_client
+
+    try:
+        # Lazy load Replicate client
+        if replicate_client is None:
+            logger.info("Initializing Replicate client...")
+            replicate_client = ReplicateClient()
+
+        # Check for cancellation
+        if job_manager.is_cancelled(job_id):
+            logger.info(f"Job {job_id} was cancelled before starting")
+            return
+
+        # Get job metadata
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise Exception(f"Job {job_id} not found")
+
+        config = EditConfig(**job['config'])
+        job_dir = JOBS_DIR / job_id
+
+        # Load input images
+        input_paths = []
+        if (job_dir / 'input_1.jpg').exists():
+            input_paths.append(str(job_dir / 'input_1.jpg'))
+        if (job_dir / 'input_2.jpg').exists():
+            input_paths.append(str(job_dir / 'input_2.jpg'))
+
+        if not input_paths:
+            raise Exception("No input images found")
+
+        # Progress callback
+        def progress_callback(stage: str, message: str, progress: int = 0):
+            if job_manager.is_cancelled(job_id):
+                raise asyncio.CancelledError("Job cancelled by user")
+            job_manager.update_progress(job_id, stage=stage, message=message, progress=progress)
+
+        progress_callback("preparing", "Starting Seedream-4 generation...", 5)
+
+        # Calculate cost
+        estimated_cost = replicate_client.calculate_cost(config.max_images)
+        logger.info(f"Estimated cost for job {job_id}: ${estimated_cost:.2f} ({config.max_images} images)")
+
+        # Run in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(
+            None,
+            replicate_client.edit_image,
+            input_paths,
+            config.prompt,
+            config.size,
+            config.aspect_ratio,
+            config.enhance_prompt,
+            config.sequential_image_generation,
+            config.max_images,
+            job_dir,
+            progress_callback,
+            lambda: job_manager.is_cancelled(job_id)
+        )
+        executor_futures[job_id] = future
+
+        try:
+            output_paths = await future
+        finally:
+            if job_id in executor_futures:
+                del executor_futures[job_id]
+
+        # Check cancellation
+        if job_manager.is_cancelled(job_id):
+            logger.info(f"Job {job_id} cancelled after generation")
+            return
+
+        # Calculate actual cost based on output images
+        actual_cost = replicate_client.calculate_cost(len(output_paths))
+
+        # Update job with cost info
+        job_manager.update_job_data(job_id, {
+            'cost': actual_cost,
+            'images_generated': len(output_paths)
+        })
+
+        # For now, use the first image as the primary output
+        # TODO: Support multiple output images in download endpoint
+        if output_paths:
+            primary_output = job_dir / 'output.jpg'
+            if primary_output != Path(output_paths[0]):
+                import shutil
+                shutil.copy(output_paths[0], primary_output)
+
+        # Mark as complete
+        job_manager.set_status(job_id, JobStatus.COMPLETE)
+        progress_callback("complete", f"Seedream-4 complete! Cost: ${actual_cost:.2f}", 100)
+        logger.info(f"Job {job_id} completed successfully. Generated {len(output_paths)} images. Cost: ${actual_cost:.2f}")
+
+    except asyncio.CancelledError:
+        logger.info(f"Job {job_id} was cancelled")
+        job_manager.set_status(job_id, JobStatus.ERROR, error="Job cancelled by user")
+    except Exception as e:
+        logger.error(f"Error in Seedream generation for job {job_id}: {str(e)}", exc_info=True)
+        job_manager.set_status(job_id, JobStatus.ERROR, error=str(e))
+
+
 async def generate_image_task(job_id: str) -> None:
     """
-    Execute image editing task in thread pool executor
+    Execute image editing task - routes to appropriate model (Qwen or Seedream)
     Supports cancellation and proper error handling
     """
     global image_editor
 
     try:
+        # Get job config to determine which model to use
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise Exception(f"Job {job_id} not found")
+
+        config = EditConfig(**job['config'])
+
+        # Route to appropriate model
+        if config.model_type == ModelType.SEEDREAM:
+            logger.info(f"Job {job_id} using Seedream-4 model")
+            await generate_image_seedream(job_id)
+            return
+        elif config.model_type == ModelType.QWEN:
+            logger.info(f"Job {job_id} using Qwen model")
+            # Continue with Qwen processing below
+        else:
+            raise Exception(f"Unknown model type: {config.model_type}")
+
+        # Qwen processing starts here
         # Acquire semaphore to limit concurrent GPU jobs
         async with active_job_semaphore:
             # Check for cancellation
@@ -333,11 +460,33 @@ app.add_middleware(
 @app.get("/")
 async def root():
     """Health check endpoint"""
+    import torch
+
+    # Detect device
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif torch.backends.mps.is_available():
+        device = "mps"
+
     return {
         "status": "online",
         "message": "Qwen Image Editor API is running",
-        "model": "Qwen-Image-Edit",
-        "gpu": "A40"
+        "device": device,
+        "models": {
+            "qwen": {
+                "name": "Qwen-Image-Edit",
+                "type": "local",
+                "cost": "free",
+                "description": "20B parameter model running locally"
+            },
+            "seedream": {
+                "name": "ByteDance Seedream-4",
+                "type": "cloud",
+                "cost": f"${SEEDREAM_PRICE_PER_IMAGE}/image",
+                "description": "High-quality image generation via Replicate API"
+            }
+        }
     }
 
 

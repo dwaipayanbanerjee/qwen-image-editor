@@ -1,8 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 
+const SEEDREAM_PRICE_PER_IMAGE = 0.03 // $0.03 per image
+
 export default function EditConfig({ images, config, onChange, onGenerate, onBack }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [imagePreviewUrls, setImagePreviewUrls] = useState([])
+
+  // Ensure config has model_type, default to 'qwen'
+  useEffect(() => {
+    if (!config.model_type) {
+      onChange({ ...config, model_type: 'qwen' })
+    }
+  }, [])
 
   // Create and cleanup object URLs
   useEffect(() => {
@@ -31,10 +40,57 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
     onChange({ ...config, num_inference_steps: parseInt(e.target.value) })
   }
 
+  const handleModelTypeChange = (e) => {
+    const modelType = e.target.value
+    // Update model type and set appropriate defaults
+    const updates = { ...config, model_type: modelType }
+
+    if (modelType === 'seedream') {
+      // Set Seedream defaults
+      updates.size = config.size || '2K'
+      updates.aspect_ratio = config.aspect_ratio || '4:3'
+      updates.enhance_prompt = config.enhance_prompt || false
+      updates.sequential_image_generation = config.sequential_image_generation || 'disabled'
+      updates.max_images = config.max_images || 1
+    }
+
+    onChange(updates)
+  }
+
+  const handleSizeChange = (e) => {
+    onChange({ ...config, size: e.target.value })
+  }
+
+  const handleAspectRatioChange = (e) => {
+    onChange({ ...config, aspect_ratio: e.target.value })
+  }
+
+  const handleEnhancePromptChange = (e) => {
+    onChange({ ...config, enhance_prompt: e.target.checked })
+  }
+
+  const handleMaxImagesChange = (e) => {
+    onChange({ ...config, max_images: parseInt(e.target.value) })
+  }
+
   const estimatedTime = () => {
-    const baseTime = 45 // seconds for 50 steps
-    const timeMultiplier = config.num_inference_steps / 50
-    return Math.round(baseTime * timeMultiplier)
+    if (config.model_type === 'seedream') {
+      // Seedream is faster, typically 30-60 seconds
+      return config.enhance_prompt ? 60 : 40
+    } else {
+      // Qwen time based on steps
+      const baseTime = 45 // seconds for 50 steps
+      const timeMultiplier = config.num_inference_steps / 50
+      return Math.round(baseTime * timeMultiplier)
+    }
+  }
+
+  const estimatedCost = () => {
+    if (config.model_type === 'seedream') {
+      const maxImages = config.max_images || 1
+      return (maxImages * SEEDREAM_PRICE_PER_IMAGE).toFixed(2)
+    }
+    return '0.00'
   }
 
   return (
@@ -62,6 +118,34 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Model Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            AI Model *
+          </label>
+          <select
+            value={config.model_type || 'qwen'}
+            onChange={handleModelTypeChange}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          >
+            <option value="qwen">Qwen-Image-Edit (Local, Free)</option>
+            <option value="seedream">Seedream-4 (Cloud, $0.03/image)</option>
+          </select>
+          <div className="mt-2 p-3 bg-gray-50 rounded-lg text-sm">
+            {config.model_type === 'qwen' ? (
+              <div className="text-gray-700">
+                <strong>Qwen-Image-Edit:</strong> Runs locally on your Mac. Free to use, but requires 64GB RAM.
+                Processing time: ~{estimatedTime()}s for {config.num_inference_steps} steps.
+              </div>
+            ) : (
+              <div className="text-gray-700">
+                <strong>Seedream-4:</strong> High-quality cloud generation via Replicate.
+                Faster processing (~{estimatedTime()}s). Cost: ${estimatedCost()} for {config.max_images || 1} image(s).
+              </div>
+            )}
           </div>
         </div>
 
