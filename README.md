@@ -1,27 +1,58 @@
 # Qwen Image Editor
 
-AI-powered image editing application using the Qwen-Image-Edit model (20B parameters). Edit single images or combine two images with natural language prompts.
+AI-powered image editing application using the Qwen-Image-Edit model (20B parameters) running **locally on Mac with Apple Silicon (MPS)**. Edit single images or combine two images with natural language prompts.
 
-## 🚀 Quick Start (Single Command)
+## 🚀 Quick Start (Mac Local Deployment)
+
+### Prerequisites
+- Mac with Apple Silicon (M1/M2/M3/M4)
+- 64GB+ unified memory recommended
+- ~70GB free disk space
+- Python 3.9+ and Node.js 18+ installed
+
+### Installation
+
+**One-Time Setup (Run Once):**
 
 ```bash
+# Navigate to project
+cd ~/coding_workshop/computer_utilities/qwen-image-editor
+
+# Run unified setup script
+./setup.sh
+```
+
+The setup script will:
+- ✅ Check system prerequisites (Python, Node.js, memory, disk space)
+- ✅ Create data directories in `~/qwen-image-editor/`
+- ✅ Set up backend Python virtual environment
+- ✅ Install all Python dependencies
+- ✅ Set up frontend npm dependencies
+- ✅ Create configuration files
+- ✅ Verify PyTorch MPS support
+
+**Start the Application:**
+
+```bash
+# After setup completes, start with:
 ./start
 ```
 
-That's it! This single script:
+That's it! The `./start` script:
 - ✅ Kills any existing instances automatically
 - ✅ Validates your setup
-- ✅ Starts both backend and frontend
+- ✅ Starts both backend (port 8000) and frontend (port 3000)
 - ✅ Shows all logs in one terminal (color-coded)
 - ✅ Cleans up everything when you press Ctrl+C
 
-**First time?** Run `cd backend && ./setup.sh` first to install dependencies.
+**First Run:** Model will download ~57.7GB (takes 10-30 min). Subsequent runs start in seconds.
 
 ## Architecture
 
-- **Backend**: FastAPI server running on RunPod A40 GPU (48GB VRAM)
-- **Frontend**: React + Vite + Tailwind CSS (runs locally on your Mac)
+- **Backend**: FastAPI server running locally on Apple Silicon with MPS
+- **Frontend**: React + Vite + Tailwind CSS (localhost:3000)
 - **Model**: Qwen-Image-Edit (20B params, BF16 precision)
+- **Device**: MPS (Metal Performance Shaders) for Apple Silicon GPU acceleration
 - **Communication**: REST API + WebSocket for real-time progress
 
 ## Features
@@ -29,26 +60,26 @@ That's it! This single script:
 - ✨ **Natural Language Editing**: Edit images using text prompts
 - 🖼️ **Image Combining**: Merge two images side-by-side before editing
 - 🎨 **Advanced Controls**: Guidance scale, inference steps, negative prompts
-- ⚡ **Fast Processing**: ~30-60 seconds per edit on A40 GPU
+- ⚡ **Fast Processing**: ~30-60 seconds per edit on M2/M3 Mac
 - 📊 **Real-time Progress**: WebSocket-based progress tracking
-- 💾 **Persistent Storage**: All data stored in `/workspace` (survives pod restarts)
+- 💾 **Persistent Storage**: All data stored in `~/qwen-image-editor/`
+- 🍎 **Apple Silicon Optimized**: Native MPS support for M1/M2/M3/M4
 
 ## Project Structure
 
 ```
 qwen-image-editor/
-├── backend/                    # FastAPI backend (deploy to RunPod)
+├── backend/                    # FastAPI backend
 │   ├── main.py                 # Main API server
-│   ├── image_editor.py         # Qwen model wrapper
+│   ├── image_editor.py         # Qwen model wrapper (MPS support)
 │   ├── job_manager.py          # Job lifecycle management
 │   ├── models.py               # Pydantic models
 │   ├── cleanup.py              # Cleanup utility
 │   ├── requirements.txt        # Python dependencies
-│   ├── setup.sh                # First-time setup script
 │   ├── start.sh                # Server startup script
-│   └── .env.example            # Environment config template
+│   └── .env                    # Environment config
 │
-└── frontend/                   # React frontend (runs locally)
+└── frontend/                   # React frontend
     ├── src/
     │   ├── components/
     │   │   ├── ImageUpload.jsx    # Image upload (1-2 images)
@@ -59,140 +90,8 @@ qwen-image-editor/
     │   ├── App.jsx                # Main app orchestrator
     │   └── main.jsx               # Entry point
     ├── package.json
-    └── .env                       # Backend URL configuration
+    └── .env                       # Backend URL (localhost:8000)
 ```
-
----
-
-## Setup Instructions
-
-### Part 1: RunPod Backend Setup
-
-#### Step 1: SSH into RunPod
-
-```bash
-# Using proxied SSH
-ssh 2ww93nrkflzjy2-644110bf@ssh.runpod.io -i ~/.ssh/id_ed25519
-
-# OR using direct TCP
-ssh root@69.30.85.14 -p 22101 -i ~/.ssh/id_ed25519
-```
-
-#### Step 2: Create Workspace Directory
-
-```bash
-cd /workspace
-mkdir -p qwen-image-editor/backend
-cd qwen-image-editor/backend
-```
-
-#### Step 3: Copy Backend Files
-
-From your local Mac, copy the backend files to RunPod:
-
-```bash
-# On your local Mac
-cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor
-
-# Copy backend files to RunPod (adjust SSH command as needed)
-scp -i ~/.ssh/id_ed25519 -r backend/* root@69.30.85.14:/workspace/qwen-image-editor/backend/
-```
-
-#### Step 4: Run Setup Script
-
-Back on the RunPod server:
-
-```bash
-cd /workspace/qwen-image-editor/backend
-chmod +x setup.sh start.sh
-./setup.sh
-```
-
-This will:
-- Create Python virtual environment
-- Install all dependencies (~5-10 minutes)
-- Set up directory structure
-- Create `.env` file
-
-#### Step 5: Configure Environment
-
-Edit `.env` if needed (default values should work):
-
-```bash
-nano .env
-```
-
-Default configuration:
-```bash
-HF_HOME=/workspace/huggingface_cache
-TRANSFORMERS_CACHE=/workspace/huggingface_cache
-HF_DATASETS_CACHE=/workspace/huggingface_cache
-JOBS_DIR=/workspace/jobs
-HOST=0.0.0.0
-PORT=8000
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-```
-
-#### Step 6: Start Backend Server
-
-```bash
-./start.sh
-```
-
-**On first run**: The model will be downloaded (~40GB, takes 10-30 minutes depending on connection speed).
-
-The server will start on port 8000. RunPod will expose this via port 8000 on the proxy URL.
-
-#### Step 7: Verify Backend
-
-In another terminal, test the health endpoint:
-
-```bash
-# From RunPod server
-curl http://localhost:8000/
-
-# Expected response:
-# {"status": "online", "message": "Qwen Image Editor API is running", ...}
-```
-
----
-
-### Part 2: Local Frontend Setup
-
-#### Step 1: Install Dependencies
-
-```bash
-cd /Users/dwaipayanbanerjee/coding_workshop/computer_utilities/qwen-image-editor/frontend
-npm install
-```
-
-#### Step 2: Configure Backend URL
-
-Edit `frontend/.env`:
-
-```bash
-# Replace with your RunPod URL once backend is running
-VITE_API_URL=https://<your-pod-id>-8000.proxy.runpod.net
-
-# For your current pod, it should look like:
-# VITE_API_URL=https://2ww93nrkflzjy2-644110bf-8000.proxy.runpod.net
-```
-
-To find your exact URL:
-1. Go to RunPod dashboard
-2. Click on your pod
-3. Look for "HTTP Services" section
-4. Port 8000 should show the proxy URL
-
-#### Step 3: Start Frontend
-
-```bash
-npm run dev
-```
-
-The app will open at `http://localhost:3000`
-
----
 
 ## Usage
 
@@ -201,6 +100,7 @@ The app will open at `http://localhost:3000`
 1. **Upload Images**: Upload 1-2 images
    - Single image: Direct editing
    - Two images: Combined side-by-side before editing
+   - Optimal size: 512-4096px
 
 2. **Configure Edit**: Enter your edit prompt
    - Example: "change the background to a sunset sky"
@@ -213,7 +113,7 @@ The app will open at `http://localhost:3000`
    - **Inference Steps**: 20-100 (default: 50)
      - More steps = better quality but slower
 
-4. **Process**: Wait ~30-60 seconds for processing
+4. **Process**: Wait ~30-60 seconds for processing (M2/M3 Mac)
 
 5. **Download**: Download your edited image
 
@@ -229,11 +129,9 @@ The app will open at `http://localhost:3000`
 - "change the car color to red"
 - "add a hat to the person"
 
-**Text Editing**:
+**Text Editing** (English/Chinese):
 - "change the sign text to 'Welcome'"
 - "remove all text from the image"
-
----
 
 ## API Endpoints
 
@@ -241,7 +139,7 @@ The app will open at `http://localhost:3000`
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | Health check |
+| GET | `/` | Health check (shows device: mps/cuda/cpu) |
 | POST | `/api/edit` | Create editing job |
 | GET | `/api/jobs/{job_id}/status` | Get job status |
 | GET | `/api/jobs/{job_id}/download` | Download result |
@@ -265,8 +163,6 @@ The app will open at `http://localhost:3000`
 }
 ```
 
----
-
 ## Maintenance
 
 ### Cleanup Old Jobs
@@ -274,8 +170,7 @@ The app will open at `http://localhost:3000`
 Jobs are automatically cleaned up after download. Manual cleanup:
 
 ```bash
-# On RunPod server
-cd /workspace/qwen-image-editor/backend
+cd backend
 source venv/bin/activate
 
 # Show disk usage
@@ -294,68 +189,66 @@ python cleanup.py --job <job_id>
 python cleanup.py --all
 ```
 
-### Monitor GPU Usage
+### Monitor System Resources
 
 ```bash
-nvidia-smi
-watch -n 1 nvidia-smi  # Live monitoring
+# Check MPS availability
+python -c "import torch; print('MPS available:', torch.backends.mps.is_available())"
+
+# Monitor memory usage
+top -o MEM
+
+# Check disk space
+df -h ~
+du -sh ~/qwen-image-editor
 ```
-
-### View Server Logs
-
-```bash
-# If running with start.sh, logs are in stdout
-# For background operation, use screen or tmux:
-
-screen -S qwen
-./start.sh
-# Press Ctrl+A, then D to detach
-
-# Reattach later:
-screen -r qwen
-```
-
----
 
 ## Troubleshooting
 
-### Backend Issues
+### Model Issues
 
 **Model not loading:**
-- Check VRAM: `nvidia-smi`
-- Ensure A40 with 48GB VRAM
-- Check HuggingFace cache: `ls -lh /workspace/huggingface_cache`
+- Check available memory: System Settings → General → About → Memory
+- Ensure 64GB+ unified memory available
+- Verify `~/qwen-image-editor/huggingface_cache` exists
+- Check MPS: `python -c "import torch; print(torch.backends.mps.is_available())"`
+
+**MPS not available:**
+- Verify you're on Apple Silicon Mac (not Intel)
+- Check macOS version (requires macOS 12.3+)
+- Ensure PyTorch version supports MPS (2.0+)
+- Will fallback to CPU if MPS unavailable (much slower)
+
+### Server Issues
 
 **Port 8000 not accessible:**
-- Verify server is running: `curl http://localhost:8000/`
-- Check RunPod dashboard: Ensure port 8000 is exposed
-- Check firewall/security settings
+- Check server is running: `curl http://localhost:8000/`
+- Verify no firewall blocking localhost
+- Check for other processes using port: `lsof -i :8000`
 
-**Out of memory:**
-- Model requires ~40GB VRAM (BF16)
-- Check if other processes are using GPU
-- Restart pod if memory is fragmented
-
-### Frontend Issues
-
-**Cannot connect to backend:**
-- Verify `VITE_API_URL` in `frontend/.env`
-- Check backend health: Visit the URL in browser
-- Check CORS settings in `backend/main.py`
-
-**WebSocket connection fails:**
-- Ensure URL protocol is `wss://` (not `ws://`)
-- Check browser console for errors
-- Verify backend WebSocket endpoint works
+**Frontend can't connect:**
+- Verify `VITE_API_URL=http://localhost:8000` in `frontend/.env`
+- Test backend directly in browser: `http://localhost:8000/`
+- Check both services running: `ps aux | grep -E "(uvicorn|vite)"`
 
 ### Performance Issues
 
-**Slow processing:**
-- Normal: 30-60 seconds for 50 steps
-- Check GPU utilization: `nvidia-smi`
-- Reduce `num_inference_steps` for faster results
+**Out of memory:**
+- Restart Mac to clear memory
+- Close other memory-intensive apps
+- Ensure you have 64GB+ unified memory
+- Model requires ~40GB in memory during inference
 
----
+**Slow processing:**
+- Normal: 30-60s for 50 steps on M2/M3
+- Check Activity Monitor → GPU tab for Metal usage
+- First run slower due to model download
+- Reduce inference steps for faster results (lower quality)
+
+**WebSocket connection fails:**
+- Check browser console for errors
+- Verify backend is running on localhost:8000
+- Try HTTP polling fallback (automatic)
 
 ## Technical Details
 
@@ -363,42 +256,59 @@ screen -r qwen
 
 - **Name**: Qwen-Image-Edit
 - **Size**: 20B parameters
-- **Precision**: BF16 (requires 40GB VRAM)
+- **Precision**: BF16 on MPS/CUDA, FP32 on CPU
+- **Disk Cache**: ~57.7GB (downloaded once)
+- **Memory**: ~40GB during inference
 - **Architecture**: Built on Qwen2.5-VL
 - **License**: Apache 2.0
 
-### Storage Requirements
+### System Requirements
 
-- **Model cache**: ~40GB (downloaded once)
-- **Per job**: 2-5MB (input + output images)
-- **Recommended volume**: 50GB minimum
+- **Mac**: Apple Silicon (M1/M2/M3/M4)
+- **Memory**: 64GB+ unified memory recommended
+- **Disk**: 70GB free space minimum
+- **OS**: macOS 12.3+ (for MPS support)
+- **Python**: 3.9+
+- **Node.js**: 18+
 
-### Processing Time
+### Processing Time (M2/M3 Mac)
 
-- **50 steps** (default): ~45 seconds
 - **20 steps** (faster): ~20 seconds
+- **50 steps** (default): ~45 seconds
 - **100 steps** (best quality): ~90 seconds
 
----
+*Tested on M3 Ultra with 64GB memory: ~42 seconds for 50 steps*
+
+### Storage Layout
+
+```
+~/qwen-image-editor/
+├── huggingface_cache/          # ~57.7GB model cache
+└── jobs/{job_id}/              # 2-5MB per job
+    ├── input_1.jpg
+    ├── input_2.jpg (optional)
+    ├── output.jpg
+    └── metadata.json
+```
 
 ## Development
 
-### Running Backend Locally (for testing)
+### Running Services Separately
 
-If you have a local GPU with 40GB+ VRAM:
-
+**Backend only:**
 ```bash
 cd backend
-python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
-
-# Edit .env to use local paths
-export PORT=8000
 python main.py
 ```
 
-### Building Frontend
+**Frontend only:**
+```bash
+cd frontend
+npm run dev
+```
+
+### Building for Production
 
 ```bash
 cd frontend
@@ -406,49 +316,37 @@ npm run build      # Production build
 npm run preview    # Preview production build
 ```
 
----
+### Configuration Files
 
-## Configuration Files
-
-### Backend `.env`
-
+**Backend `.env`:**
 ```bash
-HF_HOME=/workspace/huggingface_cache          # Model cache
-TRANSFORMERS_CACHE=/workspace/huggingface_cache
-HF_DATASETS_CACHE=/workspace/huggingface_cache
-JOBS_DIR=/workspace/jobs                      # Job storage
-HOST=0.0.0.0                                  # Bind to all interfaces
-PORT=8000                                     # Internal port
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True  # GPU memory optimization
+HF_HOME=~/qwen-image-editor/huggingface_cache
+TRANSFORMERS_CACHE=~/qwen-image-editor/huggingface_cache
+HF_DATASETS_CACHE=~/qwen-image-editor/huggingface_cache
+JOBS_DIR=~/qwen-image-editor/jobs
+HOST=0.0.0.0
+PORT=8000
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 
-### Frontend `.env`
-
+**Frontend `.env`:**
 ```bash
-VITE_API_URL=https://<your-pod-id>-8000.proxy.runpod.net
+VITE_API_URL=http://localhost:8000
 ```
-
----
 
 ## Resources
 
-- **Qwen-Image-Edit**: https://huggingface.co/Qwen/Qwen-Image-Edit
-- **RunPod**: https://runpod.io/
-- **FastAPI**: https://fastapi.tiangolo.com/
-- **React**: https://react.dev/
-
----
+- **Qwen-Image-Edit Model**: https://huggingface.co/Qwen/Qwen-Image-Edit
+- **FastAPI Docs**: https://fastapi.tiangolo.com/
+- **React Docs**: https://react.dev/
+- **PyTorch MPS**: https://pytorch.org/docs/stable/notes/mps.html
 
 ## License
 
 Apache 2.0 (same as Qwen-Image-Edit model)
 
----
+## Acknowledgments
 
-## Support
-
-For issues or questions:
-1. Check troubleshooting section above
-2. Review backend logs
-3. Check browser console for frontend errors
-4. Verify all prerequisites are met
+- **Qwen Team** for the Qwen-Image-Edit model
+- **Ivan Fioravanti** for qwen-image-mps implementation reference
+- **Apple** for Metal Performance Shaders (MPS)

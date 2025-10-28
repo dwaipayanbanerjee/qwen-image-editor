@@ -1,28 +1,30 @@
 # FastAPI and web server
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-python-multipart==0.0.6
-websockets==12.0
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+websockets>=12.0
 
 # Data validation
-pydantic==2.5.3
-python-dotenv==1.0.0
+pydantic>=2.5.3
+python-dotenv>=1.0.0
 
-# Image processing
-Pillow==10.2.0
+# Image processing (updated for Python 3.13 compatibility)
+Pillow>=10.3.0
 
-# PyTorch and CUDA
-torch==2.2.0
-torchvision==0.17.0
+# PyTorch with MPS support (Mac Apple Silicon)
+# Note: torch>=2.0.0 includes MPS backend for Apple Silicon
+torch>=2.2.0
+torchvision>=0.17.0
 
 # Hugging Face and Diffusers
-transformers==4.40.0
-accelerate==0.28.0
-diffusers @ git+https://github.com/huggingface/diffusers.git
+transformers>=4.40.0
+accelerate>=0.28.0
+diffusers>=0.35.0
 
 # Additional ML dependencies
-safetensors==0.4.2
-sentencepiece==0.2.0
+safetensors>=0.4.2
+sentencepiece>=0.2.0
+huggingface-hub>=0.20.0
 
 # Utilities
-requests==2.31.0
+requests>=2.31.0

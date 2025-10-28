@@ -12,8 +12,12 @@ echo ""
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Check if virtual environment exists
-if [ ! -d "$SCRIPT_DIR/venv" ]; then
+# Check if virtual environment exists (.venv or venv)
+if [ -d "$SCRIPT_DIR/.venv" ]; then
+    VENV_DIR="$SCRIPT_DIR/.venv"
+elif [ -d "$SCRIPT_DIR/venv" ]; then
+    VENV_DIR="$SCRIPT_DIR/venv"
+else
     echo "ERROR: Virtual environment not found!"
     echo "Please run ./setup.sh first"
     exit 1
@@ -65,7 +69,7 @@ cd "$SCRIPT_DIR"
 
 # Activate virtual environment
 echo "Activating virtual environment..."
-source "$SCRIPT_DIR/venv/bin/activate"
+source "$VENV_DIR/bin/activate"
 
 # Verify directories exist
 echo "Verifying directory structure..."
@@ -81,9 +85,9 @@ echo "  Jobs Directory: $JOBS_DIR"
 echo "  HuggingFace Cache: $HF_HOME"
 echo ""
 
-# Check GPU
-echo "GPU Information:"
-nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader || echo "nvidia-smi not available"
+# Check GPU/MPS availability
+echo "Device Information:"
+python -c "import torch; print(f'MPS (Apple Silicon) available: {torch.backends.mps.is_available()}') if hasattr(torch.backends, 'mps') else None; print(f'CUDA available: {torch.cuda.is_available()}')" 2>/dev/null || echo "PyTorch not available yet"
 echo ""
 
 # Start the server

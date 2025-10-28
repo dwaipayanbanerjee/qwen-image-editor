@@ -4,25 +4,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-AI-powered image editing application using Qwen-Image-Edit (20B parameter model). Flexible deployment: Run full-stack on GPU server (TensorDock, RunPod, etc.), or split architecture with backend on GPU server and frontend locally.
+AI-powered image editing application using Qwen-Image-Edit (20B parameter model) running **locally on Mac with Apple Silicon (MPS)**. Full-stack deployment on your local Mac machine with backend and frontend both running on localhost.
 
-## Common Commands
+## Quick Start (Mac Local Deployment)
 
-### Quick Start (Single Command)
+**Prerequisites:**
+- Mac with Apple Silicon (M1/M2/M3/M4)
+- 64GB+ unified memory recommended (model cache is ~57.7GB)
+- ~70GB free disk space (model + cache)
+- Python 3.9+ and Node.js 18+ installed
 
-**The ONLY command you need:**
+**First-Time Setup:**
 
 ```bash
-# SSH into your GPU server
-ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
-
 # Navigate to project
-cd ~/workspace/qwen-image-editor
+cd ~/coding_workshop/computer_utilities/qwen-image-editor
 
-# First-time setup only (one time)
+# Run unified setup script (one time only)
 ./setup.sh
+```
 
-# Start everything (every time)
+The setup script automatically:
+- ✅ Checks system prerequisites (Python, Node.js, memory, disk space)
+- ✅ Creates data directories in `~/qwen-image-editor/`
+- ✅ Sets up backend Python virtual environment
+- ✅ Installs all Python dependencies (~5-10 min)
+- ✅ Sets up frontend npm dependencies (~2-5 min)
+- ✅ Creates configuration files (.env)
+- ✅ Verifies PyTorch MPS support on Apple Silicon
+
+**Start the Application (Every Time):**
+
+```bash
+# After setup completes, start with:
 ./start
 ```
 
@@ -42,140 +56,41 @@ cd ~/workspace/qwen-image-editor
 - Clean shutdown with Ctrl+C stops both services
 - No zombie processes left behind
 
-### Backend (GPU Server)
-
-```bash
-# SSH into your GPU server (replace with your server details)
-ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
-
-# Navigate to backend
-cd ~/workspace/qwen-image-editor/backend
-
-# Start backend server (port 8000) - internal use only
-# Note: You should normally use ./start from project root
-./start.sh
-
-# Monitor GPU
-nvidia-smi
-watch -n 1 nvidia-smi
-
-# Cleanup old jobs
-source venv/bin/activate
-python cleanup.py --status           # Show disk usage
-python cleanup.py --list             # List all jobs
-python cleanup.py --hours 1          # Clean jobs older than 1 hour
-python cleanup.py --job <job_id>     # Clean specific job
-python cleanup.py --all              # Clean all jobs
-```
-
-### Frontend (Local Development)
-
-```bash
-# Navigate to frontend (adjust path to your local repo)
-cd /path/to/qwen-image-editor/frontend
-
-# Install dependencies (first time only)
-npm install
-
-# Start dev server (port 3000)
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
-```
-
-### Full-Stack Deployment (GPU Server) - Recommended
-
-**Using Git (Recommended)**
-
-```bash
-# 1. Push latest changes to GitHub (on local machine)
-git push origin main
-
-# 2. SSH into your GPU server
-ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
-
-# 3. First-time setup: Clone repository
-cd ~/workspace
-git clone https://github.com/<YOUR_USERNAME>/qwen-image-editor.git
-cd qwen-image-editor
-
-# 4. Or update existing: Pull latest changes
-cd ~/workspace/qwen-image-editor
-git pull origin main
-
-# 5. Initial setup (first time only)
-./setup.sh  # Sets up backend & frontend, installs deps (~10-20 min)
-
-# 6. Start both services (SINGLE COMMAND)
-./start
-
-# The script will:
-# - Auto-kill any existing instances
-# - Validate setup (auto-install frontend deps if needed)
-# - Start both services with color-coded logs
-# - Handle Ctrl+C cleanup gracefully
-
-# 7. Access services (configure port forwarding or proxy as needed)
-# Frontend: http://localhost:3000 or https://<your-domain>:3000
-# Backend:  http://localhost:8000 or https://<your-domain>:8000
-```
-
-### Split Deployment (Backend on GPU Server, Frontend Local)
-
-**If you want to run backend on GPU server and frontend locally:**
-
-```bash
-# On GPU server: Start backend only
-ssh root@<SERVER_IP> -p <SSH_PORT> -i ~/.ssh/id_ed25519
-cd ~/workspace/qwen-image-editor/backend
-./start.sh
-
-# On local machine: Run frontend
-cd /path/to/qwen-image-editor/frontend
-# Update .env with: VITE_API_URL=https://<your-server-domain>:8000
-npm run dev
-```
-
 ## Architecture
 
-### Deployment Model
+### Local Mac Deployment Model
 
-**Two deployment options:**
-
-**Option 1: Full-Stack on GPU Server (Recommended)**
-- Both services run on the same GPU server
-- Backend: Port 8000 (internal/external via proxy)
-- Frontend: Port 3000 (internal/external via proxy)
+**Full-Stack on Mac:**
+- Both services run on the same local Mac machine
+- Backend: Port 8000 (localhost only)
+- Frontend: Port 3000 (localhost only)
 - Frontend connects to backend via `http://localhost:8000`
-- Simpler setup, no cross-origin issues
+- Simple setup, no cross-origin issues
 - Start with: `./start` (single command)
 
-**Option 2: Split Deployment**
-- Backend on GPU server, frontend on local machine
-- Backend: `0.0.0.0:8000` → exposed via your server's IP/domain
-- Frontend: `http://localhost:3000` (local dev server)
-- Frontend connects to backend via HTTPS/WSS
-- Useful for frontend development
+**System Requirements:**
+- Mac with Apple Silicon (M1, M2, M3, or M4)
+- 64GB+ unified memory recommended
+- Model requires ~57.7GB disk space (downloads on first run, ~10-30 min)
+- All data stored in `~/qwen-image-editor/` (persistent across restarts)
 
-**Backend Requirements:**
-- FastAPI server on GPU with 40GB+ VRAM (A40, A6000, A100, etc.)
-- Model requires ~40GB VRAM (BF16), downloads on first run (~10-30 min)
-- All data stored in `~/workspace` (ensure persistent storage)
-
-**Frontend Stack:**
-- React + Vite + Tailwind CSS
-- Configure backend URL in `frontend/.env`
+**Technology Stack:**
+- Backend: FastAPI + PyTorch with MPS (Metal Performance Shaders)
+- Frontend: React + Vite + Tailwind CSS
+- Model: Qwen-Image-Edit (20B parameters, BF16 precision)
 
 ### Key Design Patterns
+
+**MPS Device Detection:**
+- Automatic device selection: MPS > CUDA > CPU
+- MPS (Metal Performance Shaders) for Apple Silicon
+- BF16 precision on MPS for optimal performance
+- CPU fallback for non-Apple Silicon Macs
 
 **Direct Job Processing:**
 - Jobs processed immediately as background tasks when submitted
 - Background task system allows non-blocking API responses
-- Single GPU instance shared across all requests
+- Single MPS instance shared across all requests
 
 **Lazy Model Loading:**
 - Model loaded on first edit request only (`main.py:63-76`)
@@ -184,7 +99,7 @@ npm run dev
 
 **Job Persistence:**
 - In-memory state in `JobManager.jobs` dict
-- Disk persistence at `~/workspace/qwen-image-editor/jobs/{job_id}/metadata.json`
+- Disk persistence at `~/qwen-image-editor/jobs/{job_id}/metadata.json`
 - Survives server restarts and page refreshes
 - Frontend stores current job in localStorage for resume capability
 
@@ -195,14 +110,14 @@ npm run dev
 
 **Multi-Image Support:**
 - Can process 1-2 images per job
-- Two images combined side-by-side before editing (`image_editor.py:122-153`)
+- Two images combined side-by-side before editing (`image_editor.py:225-256`)
 - Resizes to same height while maintaining aspect ratios
 
 ### Code Architecture
 
 **Backend Structure:**
 - `main.py` - FastAPI app, routes, WebSocket, background task processing
-- `image_editor.py` - Qwen model wrapper, inference logic
+- `image_editor.py` - Qwen model wrapper, inference logic, **MPS device detection**
 - `job_manager.py` - Job lifecycle, state management, WebSocket registry
 - `models.py` - Pydantic schemas for validation
 - `cleanup.py` - CLI utility for maintenance
@@ -216,7 +131,7 @@ npm run dev
 
 **Data Flow:**
 1. User uploads images → Frontend validates → POST `/api/edit`
-2. Backend saves to `~/workspace/qwen-image-editor/jobs/{job_id}/` → Returns job_id → Starts processing
+2. Backend saves to `~/qwen-image-editor/jobs/{job_id}/` → Returns job_id → Starts processing
 3. Frontend connects WebSocket → `/ws/{job_id}`
 4. Background task processes job → Broadcasts progress via WebSocket
 5. Complete → Frontend downloads → Backend auto-cleans job files
@@ -224,60 +139,57 @@ npm run dev
 ### Storage Layout
 
 ```
-~/workspace/qwen-image-editor/           # Project root
-├── huggingface_cache/                   # Model cache (~40GB)
+~/qwen-image-editor/                     # Project root (local Mac)
+├── huggingface_cache/                   # Model cache (~57.7GB)
 │   └── models--Qwen--Qwen-Image-Edit/
 ├── jobs/{job_id}/                       # Job storage (~2-5MB each)
 │   ├── input_1.jpg
 │   ├── input_2.jpg (optional)
 │   ├── output.jpg
 │   └── metadata.json
-├── backend/
-│   ├── venv/                            # Python virtual environment
-│   ├── main.py, image_editor.py, etc.
-│   └── .env                             # Backend configuration
-└── frontend/
-    ├── node_modules/                    # Node.js dependencies
-    ├── src/
-    └── .env                             # Frontend configuration
+└── (workspace is in ~/coding_workshop/computer_utilities/)
+    ├── backend/
+    │   ├── venv/                        # Python virtual environment
+    │   ├── main.py, image_editor.py, etc.
+    │   └── .env                         # Backend configuration
+    └── frontend/
+        ├── node_modules/                # Node.js dependencies
+        ├── src/
+        └── .env                         # Frontend configuration
 ```
 
 ## Configuration
 
 **Backend `.env`:**
 ```bash
-HF_HOME=~/workspace/qwen-image-editor/huggingface_cache
-TRANSFORMERS_CACHE=~/workspace/qwen-image-editor/huggingface_cache
-HF_DATASETS_CACHE=~/workspace/qwen-image-editor/huggingface_cache
-JOBS_DIR=~/workspace/qwen-image-editor/jobs
+HF_HOME=~/qwen-image-editor/huggingface_cache
+TRANSFORMERS_CACHE=~/qwen-image-editor/huggingface_cache
+HF_DATASETS_CACHE=~/qwen-image-editor/huggingface_cache
+JOBS_DIR=~/qwen-image-editor/jobs
 HOST=0.0.0.0
 PORT=8000
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 ```
 
-**Frontend `.env` (Full-stack deployment):**
+**Frontend `.env`:**
 ```bash
 VITE_API_URL=http://localhost:8000
 ```
 
-**Frontend `.env` (Split deployment):**
-```bash
-VITE_API_URL=https://<your-server-domain>:8000
-```
-
-Note: Ensure `~/workspace` is on persistent storage to preserve models/data across restarts.
+Note: All paths use `~` which expands to your home directory on Mac.
 
 ## Model Details
 
 - **Model:** Qwen-Image-Edit (20B parameters)
-- **Precision:** BF16 (~40GB VRAM)
-- **Processing Time:** ~20s (20 steps), ~45s (50 steps), ~90s (100 steps)
-- **First Run:** Downloads model (~40GB, 10-30 min), cached afterward
+- **Precision:** BF16 on MPS/CUDA, FP32 on CPU (~57.7GB disk cache)
+- **Processing Time:** ~20s (20 steps), ~45s (50 steps), ~90s (100 steps) on M2/M3 Mac
+- **First Run:** Downloads model (~57.7GB, 10-30 min), cached afterward
 - **Capabilities:** Semantic editing, appearance changes, text editing (English/Chinese)
+- **Device Priority:** MPS (Apple Silicon) > CUDA (NVIDIA) > CPU
 
 ## API Endpoints
 
-- `GET /` - Health check
+- `GET /` - Health check (shows device: mps/cuda/cpu)
 - `POST /api/edit` - Create job (multipart: image1, image2?, config JSON)
 - `GET /api/jobs/{job_id}/status` - Get job status
 - `GET /api/jobs/{job_id}/download` - Download result (triggers auto-cleanup)
@@ -293,27 +205,120 @@ Note: Ensure `~/workspace` is on persistent storage to preserve models/data acro
 3. Update `frontend/src/components/EditConfig.jsx` with UI input
 
 **Testing Locally:**
-- Backend requires 40GB+ VRAM GPU (A40/A6000/A100)
-- Can develop frontend against deployed GPU server backend
+- Backend requires Mac with Apple Silicon (MPS support)
+- Model will use MPS if available, CPU otherwise
+- First run downloads ~57.7GB model (one-time, 10-30 min)
 
 **Job Cleanup:**
 - Automatic after download (via `background_tasks`)
 - Manual via `cleanup.py` CLI or `/api/cleanup` endpoint
-- Jobs persist in `~/workspace/qwen-image-editor/jobs/` until explicitly cleaned
+- Jobs persist in `~/qwen-image-editor/jobs/` until explicitly cleaned
 
 **WebSocket Connection:**
-- Auto-converts `https://` → `wss://` in frontend
+- Connects to `ws://localhost:8000/ws/{job_id}`
 - Handles reconnection and dead connection cleanup
 - Broadcasts progress from worker threads via `asyncio.run_coroutine_threadsafe()`
 
+## Cancellation and Shutdown Behavior
+
+**Important Notes:**
+- **During inference**: The diffusers pipeline runs synchronously and cannot be interrupted mid-step
+- **When you press Ctrl+C**: The backend will:
+  1. Request cancellation for all active jobs
+  2. Cancel asyncio tasks immediately
+  3. Wait up to 5 seconds for inference threads to complete
+  4. Force shutdown after timeout (GPU memory cleared on best-effort basis)
+  5. Kill any remaining zombie processes on next start
+
+**Best Practice:**
+- Allow inference to complete naturally when possible
+- If you must interrupt, wait a few seconds for graceful shutdown
+- The `./start` script automatically cleans up old instances on startup
+
+**Resource Cleanup:**
+- GPU memory is cleared automatically after each inference
+- On Ctrl+C, the backend attempts to clear MPS cache
+- If shutdown is forced, resources are freed when the process terminates
+- No zombie processes are left behind (verified on next startup)
+
 ## Troubleshooting
 
-**Model not loading:** Check GPU VRAM (`nvidia-smi`), ensure 40GB+ VRAM available, verify `~/workspace/qwen-image-editor/huggingface_cache` exists
+**Model not loading:**
+- Check available memory: System Settings → General → About → Memory
+- Ensure 64GB+ unified memory available
+- Verify `~/qwen-image-editor/huggingface_cache` directory exists
+- Check MPS availability: `python -c "import torch; print(torch.backends.mps.is_available())"`
 
-**Port 8000 not accessible:** Check server listening on `0.0.0.0:8000` with `netstat -tlnp | grep 8000`, verify firewall rules
+**Port 8000 not accessible:**
+- Check server listening on `0.0.0.0:8000` with `netstat -an | grep 8000`
+- Verify firewall allows localhost connections
+- Try accessing `http://localhost:8000/` in browser
 
-**Frontend can't connect:** Verify `VITE_API_URL` in `frontend/.env`, test backend health endpoint directly in browser at `http://localhost:8000/`
+**Frontend can't connect:**
+- Verify `VITE_API_URL=http://localhost:8000` in `frontend/.env`
+- Test backend health endpoint directly: `curl http://localhost:8000/`
+- Check both services are running: `ps aux | grep -E "(uvicorn|vite)"`
 
-**Out of memory:** Restart server to clear GPU cache, check no other GPU processes with `nvidia-smi`
+**Out of memory:**
+- Restart Mac to clear memory
+- Close other memory-intensive apps
+- Ensure you have 64GB+ unified memory
+- Model requires ~40GB in memory during inference
 
-**Slow processing:** Normal 30-60s for 50 steps, check GPU utilization is 90-100% during inference with `nvidia-smi`
+**Slow processing:**
+- Normal: 30-60s for 50 steps on M2/M3
+- Check Activity Monitor → GPU tab for Metal usage
+- First run is slower due to model download
+
+**MPS not available:**
+- Verify you're on Apple Silicon Mac (not Intel)
+- Check macOS version (requires macOS 12.3+)
+- Ensure PyTorch version supports MPS (2.0+)
+- Fallback to CPU if MPS unavailable (slower but works)
+
+## Common Commands
+
+```bash
+# Start both services
+./start
+
+# Backend only
+cd backend
+./start.sh
+
+# Frontend only
+cd frontend
+npm run dev
+
+# Cleanup old jobs
+cd backend
+source venv/bin/activate
+python cleanup.py --status           # Show disk usage
+python cleanup.py --list             # List all jobs
+python cleanup.py --hours 1          # Clean jobs older than 1 hour
+python cleanup.py --all              # Clean all jobs
+
+# Check MPS availability
+python -c "import torch; print('MPS available:', torch.backends.mps.is_available())"
+
+# Monitor processes
+ps aux | grep -E "(uvicorn|vite)"
+
+# Check disk space
+df -h ~
+du -sh ~/qwen-image-editor
+```
+
+## Performance Notes
+
+**Mac Performance (Apple Silicon):**
+- M1/M2/M3 with 64GB: ~42 seconds for 50 steps (tested on M3 Ultra)
+- Model uses BF16 precision on MPS
+- ~60GB memory occupied during inference
+- Faster with Lightning LoRA (future enhancement)
+
+**Memory Management:**
+- MPS cache cleared after each inference
+- Garbage collection forced after processing
+- Jobs auto-deleted after download
+- Model stays loaded in memory for faster subsequent edits

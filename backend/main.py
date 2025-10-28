@@ -16,7 +16,7 @@ if 'PYTORCH_CUDA_ALLOC_CONF' not in os.environ:
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Dict, Any
 from pathlib import Path
 from io import BytesIO
 
@@ -52,6 +52,7 @@ job_manager = JobManager(JOBS_DIR)
 image_editor: Optional[ImageEditor] = None
 job_queue: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit concurrent jobs
 active_job_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)  # Only 1 job at a time on GPU
+executor_futures: Dict[str, Any] = {}  # Track futures for cleanup
 
 
 async def validate_image_file(file: UploadFile, max_size: int = MAX_FILE_SIZE) -> bytes:
@@ -196,7 +197,9 @@ async def generate_image_task(job_id: str) -> None:
 
             # Run image editing in executor to avoid blocking
             loop = asyncio.get_event_loop()
-            output_path = await loop.run_in_executor(
+
+            # Track the future for cleanup
+            future = loop.run_in_executor(
                 None,
                 image_editor.edit_image,
                 input_paths,
@@ -208,6 +211,14 @@ async def generate_image_task(job_id: str) -> None:
                 progress_callback,
                 lambda: job_manager.is_cancelled(job_id)  # Cancellation checker
             )
+            executor_futures[job_id] = future
+
+            try:
+                output_path = await future
+            finally:
+                # Clean up future reference
+                if job_id in executor_futures:
+                    del executor_futures[job_id]
 
             # Final cancellation check
             if job_manager.is_cancelled(job_id):
@@ -243,11 +254,49 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down...")
-    # Cancel any remaining tasks
+
+    # Request cancellation for all active jobs
+    for job_id in list(job_manager.job_tasks.keys()):
+        logger.info(f"Requesting cancellation for job {job_id}")
+        job_manager.request_cancellation(job_id)
+
+    # Cancel asyncio tasks
     for job_id, task in list(job_manager.job_tasks.items()):
         if not task.done():
-            logger.info(f"Cancelling job {job_id}")
+            logger.info(f"Cancelling asyncio task for job {job_id}")
             task.cancel()
+
+    # Wait for executor futures with timeout
+    if executor_futures:
+        logger.warning(f"Waiting up to 5 seconds for {len(executor_futures)} inference thread(s) to finish...")
+        logger.warning("Note: Diffusers pipeline cannot be interrupted mid-inference")
+
+        try:
+            # Give threads 5 seconds to finish gracefully
+            await asyncio.wait_for(
+                asyncio.gather(*[f for f in executor_futures.values()], return_exceptions=True),
+                timeout=5.0
+            )
+            logger.info("All inference threads completed")
+        except asyncio.TimeoutError:
+            logger.warning("Inference threads did not complete in time - forcing shutdown")
+            logger.warning("GPU memory may not be fully released until process terminates")
+
+    # Force GPU cleanup if image_editor is loaded
+    if image_editor is not None:
+        try:
+            logger.info("Clearing GPU cache...")
+            import torch
+            import gc
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            elif torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            gc.collect()
+            logger.info("GPU cache cleared")
+        except Exception as e:
+            logger.error(f"Error clearing GPU cache: {e}")
+
     logger.info("Shutdown complete")
 
 

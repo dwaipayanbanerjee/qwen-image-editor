@@ -24,6 +24,7 @@ import signal
 import threading
 import time
 import re
+import webbrowser
 from pathlib import Path
 from typing import List, Optional
 
@@ -98,24 +99,6 @@ def find_existing_processes(script_dir: Path) -> List[int]:
                 except ValueError:
                     pass
 
-    # CRITICAL: Find ANY Python processes using GPU memory (nvidia-smi)
-    # This catches orphaned processes that don't match the above patterns
-    cmd = "nvidia-smi --query-compute-apps=pid,process_name --format=csv,noheader 2>/dev/null"
-    output = run_command(cmd)
-    if output:
-        for line in output.split('\n'):
-            if line.strip():
-                parts = line.split(',')
-                if len(parts) >= 1:
-                    try:
-                        pid = int(parts[0].strip())
-                        process_name = parts[1].strip() if len(parts) > 1 else "unknown"
-                        if 'python' in process_name.lower():
-                            pids.add(pid)
-                            print_colored("CLEANUP", YELLOW, f"Found GPU process using memory: PID {pid} ({process_name})")
-                    except (ValueError, IndexError):
-                        pass
-
     return list(pids)
 
 def kill_processes(pids: List[int]):
@@ -172,12 +155,14 @@ def validate_setup(script_dir: Path) -> bool:
         print_colored("ERROR", RED, f"Frontend directory not found: {frontend_dir}")
         return False
 
-    # Check backend venv
-    venv_path = backend_dir / 'venv' / 'bin' / 'activate'
+    # Check backend venv (.venv or venv)
+    venv_path = backend_dir / '.venv' / 'bin' / 'activate'
     if not venv_path.exists():
-        print_colored("ERROR", RED, "Backend virtual environment not found!")
-        print_colored("ERROR", RED, "Please run: cd backend && ./setup.sh")
-        return False
+        venv_path = backend_dir / 'venv' / 'bin' / 'activate'
+        if not venv_path.exists():
+            print_colored("ERROR", RED, "Backend virtual environment not found!")
+            print_colored("ERROR", RED, "Please run: ./setup.sh")
+            return False
 
     # Check frontend node_modules
     node_modules = frontend_dir / 'node_modules'
@@ -277,7 +262,9 @@ def main():
     try:
         # Start backend
         print_colored("BACKEND", BLUE, "Starting on port 8000...")
-        backend_cmd = f"cd {backend_dir} && source venv/bin/activate && python main.py"
+        # Detect which venv directory exists
+        venv_activate = ".venv/bin/activate" if (backend_dir / ".venv").exists() else "venv/bin/activate"
+        backend_cmd = f"cd {backend_dir} && source {venv_activate} && python main.py"
         backend_process = subprocess.Popen(
             backend_cmd,
             shell=True,
@@ -331,6 +318,19 @@ def main():
         print(f"  {GREEN}Frontend UI: {NC}  http://localhost:3000")
         print(f"\n  {YELLOW}Press Ctrl+C to stop all services{NC}")
         print(f"{GREEN}{'=' * 70}{NC}\n")
+
+        # Open browser automatically after a short delay
+        def open_browser():
+            time.sleep(3)  # Wait for frontend to be ready
+            print_colored("INFO", CYAN, "Opening frontend in browser...")
+            try:
+                webbrowser.open("http://localhost:3000")
+            except Exception as e:
+                print_colored("WARNING", YELLOW, f"Could not open browser automatically: {e}")
+                print_colored("INFO", CYAN, "Please open http://localhost:3000 manually")
+
+        browser_thread = threading.Thread(target=open_browser, daemon=True)
+        browser_thread.start()
 
         # Monitor processes
         while True:

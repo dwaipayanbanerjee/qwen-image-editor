@@ -25,8 +25,26 @@ class ImageEditor:
             progress_callback: Optional callback for download progress (receives percentage 0-100)
         """
         self.pipeline = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device, self.dtype = self._get_device_and_dtype()
         self._load_model(progress_callback)
+
+    def _get_device_and_dtype(self):
+        """
+        Get the optimal device and dtype for the current system.
+        Priority: MPS (Apple Silicon) > CUDA (NVIDIA) > CPU
+
+        Returns:
+            Tuple of (device, dtype)
+        """
+        if torch.backends.mps.is_available():
+            logger.info("Using MPS (Apple Silicon GPU)")
+            return "mps", torch.bfloat16
+        elif torch.cuda.is_available():
+            logger.info("Using CUDA (NVIDIA GPU)")
+            return "cuda", torch.bfloat16
+        else:
+            logger.info("Using CPU (no GPU acceleration)")
+            return "cpu", torch.float32
 
     def _load_model(self, progress_callback: Optional[Callable[[int], None]] = None):
         """
@@ -46,9 +64,12 @@ class ImageEditor:
                 logger.info(f"Loading Qwen-Image-Edit pipeline (attempt {retry_count + 1}/{max_retries})...")
 
                 # Clear GPU cache before loading (critical for retry attempts)
-                if retry_count > 0 and torch.cuda.is_available():
+                if retry_count > 0:
                     logger.info("Clearing GPU cache before retry...")
-                    torch.cuda.empty_cache()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    elif torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
                     gc.collect()
 
                 # Note: Hugging Face doesn't provide granular download progress easily,
@@ -58,7 +79,7 @@ class ImageEditor:
 
                 self.pipeline = QwenImageEditPipeline.from_pretrained(
                     "Qwen/Qwen-Image-Edit",
-                    torch_dtype=torch.bfloat16
+                    torch_dtype=self.dtype
                 )
 
                 if progress_callback:
@@ -71,11 +92,13 @@ class ImageEditor:
 
                 logger.info(f"Model loaded successfully on {self.device}")
 
-                # Log GPU memory usage
+                # Log GPU memory usage (CUDA only - MPS doesn't expose memory stats)
                 if torch.cuda.is_available():
                     allocated = torch.cuda.memory_allocated() / 1024**3
                     reserved = torch.cuda.memory_reserved() / 1024**3
                     logger.info(f"GPU Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
+                elif self.device == "mps":
+                    logger.info("MPS device active (memory stats not available on MPS)")
 
                 return
 
@@ -83,10 +106,12 @@ class ImageEditor:
                 retry_count += 1
 
                 # Aggressive cleanup on failure
+                import gc
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-                    import gc
-                    gc.collect()
+                elif torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+                gc.collect()
 
                 if retry_count >= max_retries:
                     logger.error(f"Failed to load Qwen-Image-Edit model after {max_retries} attempts: {str(e)}")
@@ -195,30 +220,35 @@ class ImageEditor:
             logger.info(f"Saved edited image to: {output_path}")
 
             # Aggressive GPU cache cleanup after inference
+            import gc
+            # Delete intermediate tensors
+            del output
+            del edited_image
+            del input_image
+            del images
+            # Force garbage collection
+            gc.collect()
+            # Clear PyTorch cache
             if torch.cuda.is_available():
-                import gc
-                # Delete intermediate tensors
-                del output
-                del edited_image
-                del input_image
-                del images
-                # Force garbage collection
-                gc.collect()
-                # Clear PyTorch cache
                 torch.cuda.empty_cache()
                 # Log memory usage
                 allocated = torch.cuda.memory_allocated() / 1024**3
                 reserved = torch.cuda.memory_reserved() / 1024**3
                 logger.info(f"GPU Memory after cleanup: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
+            elif self.device == "mps":
+                torch.mps.empty_cache()
+                logger.info("MPS cache cleared after inference")
 
             return output_path
 
         except Exception as e:
             # Aggressive cleanup on error too
+            import gc
+            gc.collect()
             if torch.cuda.is_available():
-                import gc
-                gc.collect()
                 torch.cuda.empty_cache()
+            elif self.device == "mps":
+                torch.mps.empty_cache()
             logger.error(f"Error during image editing: {str(e)}")
             raise
 
@@ -257,9 +287,10 @@ class ImageEditor:
 
     def get_model_info(self) -> dict:
         """Get information about the loaded model"""
+        dtype_str = "bfloat16" if self.dtype == torch.bfloat16 else "float32"
         return {
             "model": "Qwen-Image-Edit",
             "device": self.device,
-            "dtype": "bfloat16",
+            "dtype": dtype_str,
             "loaded": self.pipeline is not None
         }
