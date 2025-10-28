@@ -28,3 +28,6 @@ huggingface-hub>=0.20.0
 
 # Utilities
 requests>=2.31.0
+
+# Replicate API client (for Seedream-4)
+replicate>=0.25.0

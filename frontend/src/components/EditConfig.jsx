@@ -167,22 +167,24 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
           </p>
         </div>
 
-        {/* Negative Prompt */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Negative Prompt (Optional)
-          </label>
-          <textarea
-            value={config.negative_prompt}
-            onChange={handleNegativePromptChange}
-            placeholder="Describe what you want to avoid... e.g., 'blurry, low quality, distorted'"
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
-            rows={2}
-          />
-          <p className="mt-1 text-sm text-gray-500">
-            Help guide the model by specifying what to avoid in the output.
-          </p>
-        </div>
+        {/* Negative Prompt (Qwen only) */}
+        {config.model_type === 'qwen' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Negative Prompt (Optional)
+            </label>
+            <textarea
+              value={config.negative_prompt}
+              onChange={handleNegativePromptChange}
+              placeholder="Describe what you want to avoid... e.g., 'blurry, low quality, distorted'"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+              rows={2}
+            />
+            <p className="mt-1 text-sm text-gray-500">
+              Help guide the model by specifying what to avoid in the output.
+            </p>
+          </div>
+        )}
 
         {/* Advanced Settings Toggle */}
         <button
@@ -195,51 +197,123 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
         {/* Advanced Settings */}
         {showAdvanced && (
           <div className="bg-gray-50 rounded-lg p-4 space-y-4">
-            {/* CFG Scale */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Guidance Scale: {config.true_cfg_scale.toFixed(1)}
-              </label>
-              <input
-                type="range"
-                min="1.0"
-                max="10.0"
-                step="0.5"
-                value={config.true_cfg_scale}
-                onChange={handleCfgScaleChange}
-                className="w-full"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                Higher values = stronger adherence to prompt (recommended: 4.0)
-              </p>
-            </div>
+            {config.model_type === 'qwen' ? (
+              <>
+                {/* Qwen Settings */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Guidance Scale: {config.true_cfg_scale.toFixed(1)}
+                  </label>
+                  <input
+                    type="range"
+                    min="1.0"
+                    max="10.0"
+                    step="0.5"
+                    value={config.true_cfg_scale}
+                    onChange={handleCfgScaleChange}
+                    className="w-full"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Higher values = stronger adherence to prompt (recommended: 4.0)
+                  </p>
+                </div>
 
-            {/* Inference Steps */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Inference Steps: {config.num_inference_steps}
-              </label>
-              <input
-                type="range"
-                min="20"
-                max="100"
-                step="10"
-                value={config.num_inference_steps}
-                onChange={handleStepsChange}
-                className="w-full"
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                More steps = better quality but slower (recommended: 50)
-              </p>
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Inference Steps: {config.num_inference_steps}
+                  </label>
+                  <input
+                    type="range"
+                    min="20"
+                    max="100"
+                    step="10"
+                    value={config.num_inference_steps}
+                    onChange={handleStepsChange}
+                    className="w-full"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    More steps = better quality but slower (recommended: 50)
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Seedream Settings */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Image Resolution
+                  </label>
+                  <select
+                    value={config.size || '2K'}
+                    onChange={handleSizeChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="1K">1K (1024px)</option>
+                    <option value="2K">2K (2048px)</option>
+                    <option value="4K">4K (4096px)</option>
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Higher resolution = better quality but slightly slower
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Aspect Ratio
+                  </label>
+                  <select
+                    value={config.aspect_ratio || '4:3'}
+                    onChange={handleAspectRatioChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="1:1">1:1 (Square)</option>
+                    <option value="4:3">4:3 (Standard)</option>
+                    <option value="3:4">3:4 (Portrait)</option>
+                    <option value="16:9">16:9 (Widescreen)</option>
+                    <option value="9:16">9:16 (Mobile)</option>
+                    <option value="match_input_image">Match Input Image</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Max Images to Generate
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="15"
+                    value={config.max_images || 1}
+                    onChange={handleMaxImagesChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    More images = higher cost (${(config.max_images || 1) * SEEDREAM_PRICE_PER_IMAGE})
+                  </p>
+                </div>
+
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="enhance_prompt"
+                    checked={config.enhance_prompt || false}
+                    onChange={handleEnhancePromptChange}
+                    className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                  />
+                  <label htmlFor="enhance_prompt" className="ml-2 text-sm text-gray-700">
+                    Enhance Prompt (slower but better quality)
+                  </label>
+                </div>
+              </>
+            )}
           </div>
         )}
 
-        {/* Estimated Time */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        {/* Estimated Time & Cost */}
+        <div className={config.model_type === 'seedream' ? "bg-yellow-50 border border-yellow-200 rounded-lg p-4" : "bg-blue-50 border border-blue-200 rounded-lg p-4"}>
           <div className="flex items-start">
             <svg
-              className="w-5 h-5 text-blue-500 mt-0.5 mr-2"
+              className={config.model_type === 'seedream' ? "w-5 h-5 text-yellow-500 mt-0.5 mr-2" : "w-5 h-5 text-blue-500 mt-0.5 mr-2"}
               fill="currentColor"
               viewBox="0 0 20 20"
             >
@@ -249,9 +323,17 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
                 clipRule="evenodd"
               />
             </svg>
-            <div className="text-sm text-blue-800">
+            <div className={config.model_type === 'seedream' ? "text-sm text-yellow-800" : "text-sm text-blue-800"}>
               <p className="font-medium">Estimated processing time: ~{estimatedTime()} seconds</p>
-              <p className="text-xs mt-1">Running on A40 GPU with {config.num_inference_steps} inference steps</p>
+              {config.model_type === 'qwen' ? (
+                <p className="text-xs mt-1">Running locally on your Mac with {config.num_inference_steps} inference steps</p>
+              ) : (
+                <>
+                  <p className="text-xs mt-1">Running on Replicate cloud (Seedream-4)</p>
+                  <p className="font-semibold mt-2">Cost: ${estimatedCost()} USD</p>
+                  <p className="text-xs">({config.max_images || 1} image(s) × $0.03 per image)</p>
+                </>
+              )}
             </div>
           </div>
         </div>
