@@ -1,31 +1,36 @@
 #!/bin/bash
 # Start script for Qwen Image Editor backend server
-# Activates venv and starts the FastAPI server
+# Note: Use the root ./start script to start both backend and frontend
+# This script is for backend-only startup if needed
 
 set -e  # Exit on error
 
 echo "=== Starting Qwen Image Editor Backend ==="
 echo ""
 
+# Detect workspace root (parent of backend directory)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+WORKSPACE_ROOT="$(dirname "$SCRIPT_DIR")"
+
 # Check if virtual environment exists
-if [ ! -d "venv" ]; then
+if [ ! -d "$SCRIPT_DIR/venv" ]; then
     echo "ERROR: Virtual environment not found!"
     echo "Please run ./setup.sh first"
     exit 1
 fi
 
 # Check if .env exists
-if [ ! -f ".env" ]; then
+if [ ! -f "$SCRIPT_DIR/.env" ]; then
     echo "WARNING: .env file not found!"
     echo "Creating default .env file..."
-    cat > .env << EOF
-# Hugging Face cache (persistent on RunPod)
-HF_HOME=/workspace/huggingface_cache
-TRANSFORMERS_CACHE=/workspace/huggingface_cache
-HF_DATASETS_CACHE=/workspace/huggingface_cache
+    cat > "$SCRIPT_DIR/.env" << EOF
+# Hugging Face cache (persistent storage)
+HF_HOME=$WORKSPACE_ROOT/huggingface_cache
+TRANSFORMERS_CACHE=$WORKSPACE_ROOT/huggingface_cache
+HF_DATASETS_CACHE=$WORKSPACE_ROOT/huggingface_cache
 
 # Jobs directory
-JOBS_DIR=/workspace/jobs
+JOBS_DIR=$WORKSPACE_ROOT/jobs
 
 # Server configuration
 HOST=0.0.0.0
@@ -55,14 +60,17 @@ if [ -f ".env" ]; then
     done < .env
 fi
 
+# Change to script directory
+cd "$SCRIPT_DIR"
+
 # Activate virtual environment
 echo "Activating virtual environment..."
-source venv/bin/activate
+source "$SCRIPT_DIR/venv/bin/activate"
 
 # Verify directories exist
 echo "Verifying directory structure..."
-mkdir -p $JOBS_DIR
-mkdir -p $HF_HOME
+mkdir -p "${JOBS_DIR:-$WORKSPACE_ROOT/jobs}"
+mkdir -p "${HF_HOME:-$WORKSPACE_ROOT/huggingface_cache}"
 
 # Show configuration
 echo ""
