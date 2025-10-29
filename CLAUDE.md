@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-AI-powered image editing application using Qwen-Image-Edit (20B parameter model) running **locally on Mac with Apple Silicon (MPS)**. Full-stack deployment on your local Mac machine with backend and frontend both running on localhost.
+AI-powered image editing application with three model options:
+1. **Qwen-Image-Edit** - Full 20B parameter model (local, free, high quality)
+2. **Qwen-Image-Edit-2509-GGUF** - Quantized model (local, free, faster, less VRAM)
+3. **Seedream-4** - Cloud API (paid, fastest, supports multi-image output)
+
+Full-stack deployment on your local Mac machine with backend and frontend both running on localhost.
 
 ## Quick Start (Mac Local Deployment)
 
@@ -77,7 +82,10 @@ The setup script automatically:
 **Technology Stack:**
 - Backend: FastAPI + PyTorch with MPS (Metal Performance Shaders)
 - Frontend: React + Vite + Tailwind CSS
-- Model: Qwen-Image-Edit (20B parameters, BF16 precision)
+- Models:
+  - Qwen-Image-Edit (20B parameters, BF16 precision)
+  - Qwen-Image-Edit-2509-GGUF (Quantized: Q2_K/Q4_K_M/Q5_K_S/Q8_0)
+  - Seedream-4 (Cloud API via Replicate)
 
 ### Key Design Patterns
 
@@ -140,16 +148,16 @@ The setup script automatically:
 
 ```
 ~/qwen-image-editor/                     # Project root (local Mac)
-├── huggingface_cache/                   # Model cache (~57.7GB)
-│   └── models--Qwen--Qwen-Image-Edit/
-├── jobs/{job_id}/                       # Job storage (~2-5MB each)
-│   ├── input_1.jpg
-│   ├── input_2.jpg (optional)
-│   ├── output.jpg
-│   └── metadata.json
+├── huggingface_cache/                   # Model cache
+│   ├── models--Qwen--Qwen-Image-Edit/ (~57.7GB)
+│   └── models--QuantStack--Qwen-Image-Edit-2509-GGUF/ (~7-22GB depending on quantization)
+├── jobs/{job_id}/                       # Job storage
+│   ├── input_1.jpg ... input_N.jpg      # Input images (1-10)
+│   ├── output_0.jpg ... output_N.jpg    # Output images (1-15)
+│   └── metadata.json                    # Job metadata with output_images array
 └── (workspace is in ~/coding_workshop/computer_utilities/)
     ├── backend/
-    │   ├── venv/                        # Python virtual environment
+    │   ├── .venv/                       # Python virtual environment
     │   ├── main.py, image_editor.py, etc.
     │   └── .env                         # Backend configuration
     └── frontend/
@@ -180,19 +188,44 @@ Note: All paths use `~` which expands to your home directory on Mac.
 
 ## Model Details
 
-- **Model:** Qwen-Image-Edit (20B parameters)
-- **Precision:** BF16 on MPS/CUDA, FP32 on CPU (~57.7GB disk cache)
-- **Processing Time:** ~20s (20 steps), ~45s (50 steps), ~90s (100 steps) on M2/M3 Mac
-- **First Run:** Downloads model (~57.7GB, 10-30 min), cached afterward
-- **Capabilities:** Semantic editing, appearance changes, text editing (English/Chinese)
-- **Device Priority:** MPS (Apple Silicon) > CUDA (NVIDIA) > CPU
+### Qwen-Image-Edit (Standard)
+- **Parameters:** 20B
+- **Precision:** BF16 on MPS/CUDA, FP32 on CPU
+- **Processing Time:** ~45s (50 steps) on M2/M3 Mac
+- **First Run:** Downloads ~57.7GB, 10-30 min
+- **VRAM:** ~40-60GB
+- **Input Images:** 1-2 (combines side-by-side)
+- **Output Images:** 1
+
+### Qwen-Image-Edit-2509-GGUF (Quantized)
+- **Parameters:** 20B (quantized)
+- **Quantization Levels:**
+  - Q2_K: ~7GB VRAM, fastest, lowest quality
+  - Q4_K_M: ~14GB VRAM, good quality
+  - Q5_K_S: ~17GB VRAM, **recommended**, best balance
+  - Q8_0: ~22GB VRAM, highest quantized quality
+- **Processing Time:** ~32s (50 steps) - 20-30% faster than standard
+- **First Run:** Downloads 7-22GB depending on quantization
+- **Input Images:** 1-2 (combines side-by-side)
+- **Output Images:** 1
+- **Requirements:** `gguf>=0.10.0` package
+
+### Seedream-4 (Cloud API)
+- **Provider:** ByteDance via Replicate
+- **Cost:** $0.03 per output image
+- **Processing Time:** ~30-60s
+- **Input Images:** 1-10 (used as reference)
+- **Output Images:** 1-15 (configurable via max_images)
+- **Features:** Prompt enhancement, sequential generation, auto-retry on errors
+- **Requirements:** REPLICATE_API_TOKEN in .env
 
 ## API Endpoints
 
-- `GET /` - Health check (shows device: mps/cuda/cpu)
-- `POST /api/edit` - Create job (multipart: image1, image2?, config JSON)
+- `GET /` - Health check (shows device and available models)
+- `POST /api/edit` - Create job (multipart: image1-imageN, config JSON)
 - `GET /api/jobs/{job_id}/status` - Get job status
-- `GET /api/jobs/{job_id}/download` - Download result (triggers auto-cleanup)
+- `GET /api/jobs/{job_id}/images` - List all output images with metadata
+- `GET /api/jobs/{job_id}/images/{index}` - Download specific output image
 - `DELETE /api/jobs/{job_id}` - Cancel/delete job
 - `POST /api/cleanup?hours=1` - Manual cleanup
 - `WS /ws/{job_id}` - Real-time progress WebSocket
@@ -210,9 +243,16 @@ Note: All paths use `~` which expands to your home directory on Mac.
 - First run downloads ~57.7GB model (one-time, 10-30 min)
 
 **Job Cleanup:**
-- Automatic after download (via `background_tasks`)
 - Manual via `cleanup.py` CLI or `/api/cleanup` endpoint
-- Jobs persist in `~/qwen-image-editor/jobs/` until explicitly cleaned
+- User deletes jobs via DELETE button in UI
+- Jobs persist in `~/qwen-image-editor/jobs/` until explicitly deleted
+
+**New Features:**
+- **Multi-Image Output:** Seedream can generate 1-15 images per job
+- **Output Gallery:** All images displayed with individual download buttons
+- **Prompt History:** Last 20 prompts saved in localStorage, dropdown for quick reuse
+- **GGUF Support:** Quantized models for faster inference and lower VRAM
+- **Auto-Retry:** Replicate API errors automatically retry up to 3 times
 
 **WebSocket Connection:**
 - Connects to `ws://localhost:8000/ws/{job_id}`

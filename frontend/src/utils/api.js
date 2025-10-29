@@ -77,11 +77,22 @@ export const getJobStatus = async (jobId) => {
 }
 
 /**
- * Download edited image
+ * Get list of output images for a job
  * @param {string} jobId - Job identifier
+ * @returns {Promise} - List of output images with metadata
  */
-export const downloadImage = async (jobId) => {
-  const response = await api.get(`/api/jobs/${jobId}/download`, {
+export const getOutputImages = async (jobId) => {
+  return await api.get(`/api/jobs/${jobId}/images`)
+}
+
+/**
+ * Download specific output image by index
+ * @param {string} jobId - Job identifier
+ * @param {number} index - Image index
+ * @param {string} filename - Optional custom filename
+ */
+export const downloadImageByIndex = async (jobId, index, filename) => {
+  const response = await api.get(`/api/jobs/${jobId}/images/${index}`, {
     responseType: 'blob',
   })
 
@@ -89,11 +100,21 @@ export const downloadImage = async (jobId) => {
   const url = window.URL.createObjectURL(new Blob([response.data]))
   const link = document.createElement('a')
   link.href = url
-  link.setAttribute('download', `edited_${jobId}.jpg`)
+  link.setAttribute('download', filename || `edited_${jobId}_${index}.jpg`)
   document.body.appendChild(link)
   link.click()
   link.remove()
   window.URL.revokeObjectURL(url)
+}
+
+/**
+ * Get preview URL for output image
+ * @param {string} jobId - Job identifier
+ * @param {number} index - Image index
+ * @returns {string} - Preview URL
+ */
+export const getImagePreviewUrl = (jobId, index) => {
+  return `${API_URL}/api/jobs/${jobId}/images/${index}`
 }
 
 /**

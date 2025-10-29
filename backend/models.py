@@ -16,8 +16,15 @@ class JobStatus(str, Enum):
 
 class ModelType(str, Enum):
     """Available image editing models"""
+    # Local models (free)
     QWEN = "qwen"  # Local Qwen-Image-Edit model (free, slower)
-    SEEDREAM = "seedream"  # Replicate Seedream-4 model ($0.03/image, faster)
+    QWEN_GGUF = "qwen_gguf"  # Quantized Qwen-Image-Edit-2509 model (free, faster, less VRAM)
+
+    # Cloud models (paid via Replicate)
+    SEEDREAM = "seedream"  # ByteDance Seedream-4 ($0.03/image, multi-output)
+    QWEN_IMAGE_EDIT = "qwen_image_edit"  # Qwen-Image-Edit cloud ($0.01/image, simple edits)
+    QWEN_IMAGE_EDIT_PLUS = "qwen_image_edit_plus"  # Qwen-Image-Edit-Plus ($0.02/image, pose/style transfer)
+    QWEN_IMAGE = "qwen_image"  # Qwen-Image ($0.015/image, text-to-image generation)
 
 
 class EditConfig(BaseModel):
@@ -25,13 +32,16 @@ class EditConfig(BaseModel):
     Configuration for image editing request
 
     Attributes:
-        model_type: Which model to use (qwen or seedream)
+        model_type: Which model to use (qwen, qwen_gguf, or seedream)
         prompt: Edit instruction (e.g., "make the sky sunset colors")
         negative_prompt: What to avoid in the output (Qwen only)
 
         # Qwen-specific parameters:
         true_cfg_scale: Classifier-free guidance scale (higher = more prompt adherence)
         num_inference_steps: Number of diffusion steps (higher = better quality but slower)
+
+        # Qwen GGUF-specific parameters:
+        quantization_level: Quantization level (Q5_K_S recommended for balance)
 
         # Seedream-specific parameters:
         size: Image resolution (1K, 2K, 4K, or custom)
@@ -68,6 +78,63 @@ class EditConfig(BaseModel):
         ge=10,
         le=100,
         description="Number of diffusion steps (Qwen only)"
+    )
+
+    # Qwen GGUF-specific parameters
+    quantization_level: Optional[str] = Field(
+        "Q5_K_S",
+        description="Quantization level: Q2_K (7GB), Q4_K_M (14GB), Q5_K_S (17GB), Q8_0 (22GB) (GGUF only)"
+    )
+
+    # Replicate cloud model common parameters
+    output_format: Optional[str] = Field(
+        "png",
+        description="Output format: webp, jpg, png (Cloud models only)"
+    )
+    output_quality: int = Field(
+        100,
+        ge=0,
+        le=100,
+        description="Output quality 0-100 (Cloud models only)"
+    )
+    go_fast: bool = Field(
+        False,
+        description="Enable fast mode for quicker generation (Cloud models only)"
+    )
+    disable_safety_checker: bool = Field(
+        True,
+        description="Disable safety checker for generated images (Cloud models only)"
+    )
+
+    # Qwen-Image-Edit-Plus specific parameters
+    # (Uses same prompt/negative_prompt/true_cfg_scale as local Qwen)
+
+    # Qwen-Image specific parameters (text-to-image generation)
+    image_size: Optional[str] = Field(
+        "optimize_for_quality",
+        description="Image size mode: optimize_for_quality, optimize_for_speed (Qwen-Image only)"
+    )
+    guidance: float = Field(
+        4.0,
+        ge=1.0,
+        le=20.0,
+        description="Guidance scale for text-to-image (Qwen-Image only)"
+    )
+    strength: float = Field(
+        0.9,
+        ge=0.0,
+        le=1.0,
+        description="Strength of image generation (Qwen-Image only)"
+    )
+    lora_scale: float = Field(
+        1.0,
+        ge=0.0,
+        le=2.0,
+        description="LoRA scale (Qwen-Image only)"
+    )
+    enhance_prompt_qwen: bool = Field(
+        False,
+        description="Enable prompt enhancement for Qwen-Image (text-to-image only)"
     )
 
     # Seedream-specific parameters

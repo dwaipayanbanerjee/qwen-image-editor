@@ -7,8 +7,9 @@ import { generateEdit, getJobStatus } from './utils/api'
 function App() {
   // State management
   const [step, setStep] = useState('upload') // upload, config, processing
-  const [images, setImages] = useState([]) // Array of File objects (1-2 images)
+  const [images, setImages] = useState([]) // Array of File objects (1-10 images depending on model)
   const [config, setConfig] = useState({
+    model_type: 'qwen',
     prompt: '',
     negative_prompt: '',
     true_cfg_scale: 4.0,
@@ -96,6 +97,7 @@ function App() {
     setStep('upload')
     setImages([])
     setConfig({
+      model_type: 'qwen',
       prompt: '',
       negative_prompt: '',
       true_cfg_scale: 4.0,
@@ -118,12 +120,17 @@ function App() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">
-            Qwen Image Editor
+          <h1 className="text-5xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-3">
+            Image Editor
           </h1>
-          <p className="text-gray-600">
-            AI-powered image editing using Qwen-Image-Edit model
+          <p className="text-gray-600 text-lg">
+            AI-powered editing with Qwen, GGUF, and Seedream models
           </p>
+          <div className="mt-2 flex justify-center gap-2 text-xs">
+            <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">Local Models</span>
+            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">Cloud API</span>
+            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full font-medium">Multi-Output</span>
+          </div>
         </div>
 
         {/* Error Display */}
@@ -139,7 +146,7 @@ function App() {
           {step === 'upload' && (
             <ImageUpload
               onImagesReady={handleImagesReady}
-              maxImages={2}
+              maxImages={10}
             />
           )}
 
@@ -165,8 +172,28 @@ function App() {
         </div>
 
         {/* Footer */}
-        <div className="text-center mt-12 text-gray-500 text-sm">
-          <p>Powered by Qwen-Image-Edit • Running on RunPod A40</p>
+        <div className="text-center mt-12 pb-8">
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-bold text-purple-600">6</div>
+                  <div className="text-xs text-gray-600 mt-1">AI Models</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-blue-600">10</div>
+                  <div className="text-xs text-gray-600 mt-1">Max Inputs</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-green-600">15</div>
+                  <div className="text-xs text-gray-600 mt-1">Max Outputs</div>
+                </div>
+              </div>
+            </div>
+            <p className="text-gray-500 text-sm">
+              Powered by Qwen-Image-Edit, GGUF Quantization, and Seedream-4
+            </p>
+          </div>
         </div>
       </div>
     </div>

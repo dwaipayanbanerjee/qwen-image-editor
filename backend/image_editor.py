@@ -17,14 +17,18 @@ class ImageEditor:
     Supports single image editing and multi-image combining
     """
 
-    def __init__(self, progress_callback: Optional[Callable[[int], None]] = None):
+    def __init__(self, progress_callback: Optional[Callable[[int], None]] = None, use_gguf: bool = False, quantization_level: str = "Q5_K_S"):
         """
         Initialize and load the Qwen-Image-Edit model
 
         Args:
             progress_callback: Optional callback for download progress (receives percentage 0-100)
+            use_gguf: Whether to use GGUF quantized model (faster, less VRAM)
+            quantization_level: GGUF quantization level (Q2_K, Q4_K_M, Q5_K_S, Q8_0)
         """
         self.pipeline = None
+        self.use_gguf = use_gguf
+        self.quantization_level = quantization_level
         self.device, self.dtype = self._get_device_and_dtype()
         self._load_model(progress_callback)
 
@@ -49,6 +53,127 @@ class ImageEditor:
     def _load_model(self, progress_callback: Optional[Callable[[int], None]] = None):
         """
         Lazy load the Qwen-Image-Edit pipeline with retry logic
+
+        Args:
+            progress_callback: Optional callback for progress updates
+        """
+        if self.use_gguf:
+            self._load_gguf_model(progress_callback)
+        else:
+            self._load_standard_model(progress_callback)
+
+    def _load_gguf_model(self, progress_callback: Optional[Callable[[int], None]] = None):
+        """
+        Load GGUF quantized model for faster inference and lower VRAM usage
+
+        Args:
+            progress_callback: Optional callback for progress updates
+        """
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                from diffusers import QwenImageTransformer2DModel, GGUFQuantizationConfig, QwenImageEditPipeline
+                import gc
+
+                logger.info(f"Loading Qwen-Image-Edit-2509 GGUF pipeline ({self.quantization_level}) (attempt {retry_count + 1}/{max_retries})...")
+
+                # Clear GPU cache before loading
+                if retry_count > 0:
+                    logger.info("Clearing GPU cache before retry...")
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    elif torch.backends.mps.is_available():
+                        torch.mps.empty_cache()
+                    gc.collect()
+
+                if progress_callback:
+                    progress_callback(0)
+
+                # GGUF model URL mapping
+                gguf_urls = {
+                    "Q2_K": "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/blob/main/Qwen-Image-Edit-2509-Q2_K.gguf",
+                    "Q4_K_M": "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/blob/main/Qwen-Image-Edit-2509-Q4_K_M.gguf",
+                    "Q5_K_S": "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/blob/main/Qwen-Image-Edit-2509-Q5_K_S.gguf",
+                    "Q8_0": "https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/blob/main/Qwen-Image-Edit-2509-Q8_0.gguf"
+                }
+
+                model_url = gguf_urls.get(self.quantization_level)
+                if not model_url:
+                    raise ValueError(f"Unsupported quantization level: {self.quantization_level}. Supported: {list(gguf_urls.keys())}")
+
+                logger.info(f"Loading transformer from {model_url}")
+
+                if progress_callback:
+                    progress_callback(20)
+
+                # Load quantized transformer
+                transformer = QwenImageTransformer2DModel.from_single_file(
+                    model_url,
+                    quantization_config=GGUFQuantizationConfig(compute_dtype=self.dtype),
+                    torch_dtype=self.dtype,
+                    config="Qwen/Qwen-Image-Edit-2509",
+                    subfolder="transformer"
+                )
+
+                if progress_callback:
+                    progress_callback(60)
+
+                # Load the pipeline with quantized transformer
+                self.pipeline = QwenImageEditPipeline.from_pretrained(
+                    "Qwen/Qwen-Image-Edit-2509",
+                    transformer=transformer,
+                    torch_dtype=self.dtype
+                )
+
+                if progress_callback:
+                    progress_callback(80)
+
+                # Move to device (CPU offloading recommended for GGUF)
+                if self.device == "mps" or self.device == "cuda":
+                    self.pipeline.enable_model_cpu_offload()
+                    logger.info(f"Enabled CPU offloading for GGUF model on {self.device}")
+                else:
+                    self.pipeline.to(self.device)
+
+                if progress_callback:
+                    progress_callback(100)
+
+                logger.info(f"GGUF model ({self.quantization_level}) loaded successfully on {self.device}")
+
+                # Log GPU memory usage
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    reserved = torch.cuda.memory_reserved() / 1024**3
+                    logger.info(f"GPU Memory: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
+                elif self.device == "mps":
+                    logger.info("MPS device active (memory stats not available on MPS)")
+
+                return
+
+            except Exception as e:
+                retry_count += 1
+
+                # Aggressive cleanup on failure
+                import gc
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                elif torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+                gc.collect()
+
+                if retry_count >= max_retries:
+                    logger.error(f"Failed to load GGUF model after {max_retries} attempts: {str(e)}")
+                    raise
+                else:
+                    logger.warning(f"Failed to load GGUF model (attempt {retry_count}), retrying: {str(e)}")
+                    import time
+                    time.sleep(5)
+
+    def _load_standard_model(self, progress_callback: Optional[Callable[[int], None]] = None):
+        """
+        Load standard (non-quantized) model
 
         Args:
             progress_callback: Optional callback for progress updates
@@ -288,9 +413,11 @@ class ImageEditor:
     def get_model_info(self) -> dict:
         """Get information about the loaded model"""
         dtype_str = "bfloat16" if self.dtype == torch.bfloat16 else "float32"
+        model_name = f"Qwen-Image-Edit-2509-{self.quantization_level}" if self.use_gguf else "Qwen-Image-Edit"
         return {
-            "model": "Qwen-Image-Edit",
+            "model": model_name,
             "device": self.device,
             "dtype": dtype_str,
+            "quantized": self.use_gguf,
             "loaded": self.pipeline is not None
         }

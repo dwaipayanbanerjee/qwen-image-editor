@@ -17,6 +17,7 @@ torch>=2.2.0
 torchvision>=0.17.0
 
 # Hugging Face and Diffusers
+# Note: diffusers>=0.35.0 includes GGUF quantization support for Qwen models
 transformers>=4.40.0
 accelerate>=0.28.0
 diffusers>=0.35.0
@@ -25,6 +26,7 @@ diffusers>=0.35.0
 safetensors>=0.4.2
 sentencepiece>=0.2.0
 huggingface-hub>=0.20.0
+gguf>=0.10.0
 
 # Utilities
 requests>=2.31.0

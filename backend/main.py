@@ -30,7 +30,13 @@ from PIL import Image
 from image_editor import ImageEditor
 from job_manager import JobManager, JobStatus
 from models import EditConfig, JobStatusResponse, ProgressInfo, ModelType
-from replicate_client import ReplicateClient, SEEDREAM_PRICE_PER_IMAGE
+from replicate_client import (
+    ReplicateClient,
+    SEEDREAM_PRICE_PER_IMAGE,
+    QWEN_IMAGE_EDIT_PRICE,
+    QWEN_IMAGE_EDIT_PLUS_PRICE,
+    QWEN_IMAGE_PRICE
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,7 +56,8 @@ ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://loc
 
 # Global instances
 job_manager = JobManager(JOBS_DIR)
-image_editor: Optional[ImageEditor] = None
+image_editor: Optional[ImageEditor] = None  # Standard Qwen model
+image_editor_gguf: Optional[ImageEditor] = None  # GGUF quantized model
 replicate_client: Optional[ReplicateClient] = None
 job_queue: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit concurrent jobs
 active_job_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)  # Only 1 job at a time on GPU
@@ -107,6 +114,234 @@ async def validate_image_file(file: UploadFile, max_size: int = MAX_FILE_SIZE) -
     return content
 
 
+async def generate_image_qwen_cloud(job_id: str) -> None:
+    """Execute simple image editing using qwen/qwen-image-edit"""
+    global replicate_client
+
+    try:
+        if replicate_client is None:
+            logger.info("Initializing Replicate client...")
+            replicate_client = ReplicateClient()
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise Exception(f"Job {job_id} not found")
+
+        config = EditConfig(**job['config'])
+        job_dir = JOBS_DIR / job_id
+
+        input_paths = []
+        if (job_dir / 'input_1.jpg').exists():
+            input_paths.append(str(job_dir / 'input_1.jpg'))
+
+        if not input_paths:
+            raise Exception("No input images found")
+
+        def progress_callback(stage: str, message: str, progress: int = 0):
+            if job_manager.is_cancelled(job_id):
+                raise asyncio.CancelledError("Job cancelled by user")
+            job_manager.update_progress(job_id, stage=stage, message=message, progress=progress)
+
+        progress_callback("preparing", "Starting Qwen-Image-Edit cloud...", 5)
+
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(
+            None,
+            replicate_client.edit_image_qwen_cloud,
+            input_paths,
+            config.prompt,
+            config.output_quality,
+            config.output_format,
+            config.disable_safety_checker,
+            job_dir,
+            progress_callback,
+            lambda: job_manager.is_cancelled(job_id)
+        )
+        executor_futures[job_id] = future
+
+        try:
+            output_paths = await future
+        finally:
+            if job_id in executor_futures:
+                del executor_futures[job_id]
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        output_filenames = [Path(p).name for p in output_paths]
+        job_manager.update_job_data(job_id, {
+            'cost': QWEN_IMAGE_EDIT_PRICE,
+            'images_generated': len(output_paths),
+            'output_images': output_filenames
+        })
+
+        job_manager.set_status(job_id, JobStatus.COMPLETE)
+        progress_callback("complete", f"Qwen-Image-Edit complete! Cost: ${QWEN_IMAGE_EDIT_PRICE:.3f}", 100)
+        logger.info(f"Job {job_id} completed with qwen/qwen-image-edit")
+
+    except asyncio.CancelledError:
+        job_manager.set_status(job_id, JobStatus.ERROR, error="Job cancelled by user")
+    except Exception as e:
+        logger.error(f"Error in Qwen-Image-Edit for job {job_id}: {str(e)}", exc_info=True)
+        job_manager.set_status(job_id, JobStatus.ERROR, error=str(e))
+
+
+async def generate_image_qwen_plus(job_id: str) -> None:
+    """Execute advanced editing using qwen/qwen-image-edit-plus"""
+    global replicate_client
+
+    try:
+        if replicate_client is None:
+            replicate_client = ReplicateClient()
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise Exception(f"Job {job_id} not found")
+
+        config = EditConfig(**job['config'])
+        job_dir = JOBS_DIR / job_id
+
+        input_paths = []
+        for i in range(1, 3):
+            path = job_dir / f'input_{i}.jpg'
+            if path.exists():
+                input_paths.append(str(path))
+
+        if not input_paths:
+            raise Exception("No input images found")
+
+        def progress_callback(stage: str, message: str, progress: int = 0):
+            if job_manager.is_cancelled(job_id):
+                raise asyncio.CancelledError("Job cancelled by user")
+            job_manager.update_progress(job_id, stage=stage, message=message, progress=progress)
+
+        progress_callback("preparing", "Starting Qwen-Image-Edit-Plus...", 5)
+
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(
+            None,
+            replicate_client.edit_image_qwen_plus,
+            input_paths,
+            config.prompt,
+            config.go_fast,
+            config.aspect_ratio or "match_input_image",
+            config.output_format,
+            config.output_quality,
+            config.disable_safety_checker,
+            job_dir,
+            progress_callback,
+            lambda: job_manager.is_cancelled(job_id)
+        )
+        executor_futures[job_id] = future
+
+        try:
+            output_paths = await future
+        finally:
+            if job_id in executor_futures:
+                del executor_futures[job_id]
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        output_filenames = [Path(p).name for p in output_paths]
+        job_manager.update_job_data(job_id, {
+            'cost': QWEN_IMAGE_EDIT_PLUS_PRICE,
+            'images_generated': len(output_paths),
+            'output_images': output_filenames
+        })
+
+        job_manager.set_status(job_id, JobStatus.COMPLETE)
+        progress_callback("complete", f"Qwen-Image-Edit-Plus complete! Cost: ${QWEN_IMAGE_EDIT_PLUS_PRICE:.3f}", 100)
+        logger.info(f"Job {job_id} completed with qwen/qwen-image-edit-plus")
+
+    except asyncio.CancelledError:
+        job_manager.set_status(job_id, JobStatus.ERROR, error="Job cancelled by user")
+    except Exception as e:
+        logger.error(f"Error in Qwen-Image-Edit-Plus for job {job_id}: {str(e)}", exc_info=True)
+        job_manager.set_status(job_id, JobStatus.ERROR, error=str(e))
+
+
+async def generate_image_qwen_text_to_image(job_id: str) -> None:
+    """Execute text-to-image generation using qwen/qwen-image"""
+    global replicate_client
+
+    try:
+        if replicate_client is None:
+            replicate_client = ReplicateClient()
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise Exception(f"Job {job_id} not found")
+
+        config = EditConfig(**job['config'])
+        job_dir = JOBS_DIR / job_id
+
+        def progress_callback(stage: str, message: str, progress: int = 0):
+            if job_manager.is_cancelled(job_id):
+                raise asyncio.CancelledError("Job cancelled by user")
+            job_manager.update_progress(job_id, stage=stage, message=message, progress=progress)
+
+        progress_callback("preparing", "Starting Qwen-Image text-to-image...", 5)
+
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(
+            None,
+            replicate_client.generate_image_qwen,
+            config.prompt,
+            config.negative_prompt or " ",
+            config.go_fast,
+            config.guidance,
+            config.strength,
+            config.image_size,
+            config.lora_scale,
+            config.aspect_ratio or "16:9",
+            config.output_format,
+            config.enhance_prompt_qwen,
+            config.output_quality,
+            config.num_inference_steps,
+            config.disable_safety_checker,
+            job_dir,
+            progress_callback,
+            lambda: job_manager.is_cancelled(job_id)
+        )
+        executor_futures[job_id] = future
+
+        try:
+            output_paths = await future
+        finally:
+            if job_id in executor_futures:
+                del executor_futures[job_id]
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        output_filenames = [Path(p).name for p in output_paths]
+        job_manager.update_job_data(job_id, {
+            'cost': QWEN_IMAGE_PRICE,
+            'images_generated': len(output_paths),
+            'output_images': output_filenames
+        })
+
+        job_manager.set_status(job_id, JobStatus.COMPLETE)
+        progress_callback("complete", f"Qwen-Image complete! Cost: ${QWEN_IMAGE_PRICE:.3f}", 100)
+        logger.info(f"Job {job_id} completed with qwen/qwen-image")
+
+    except asyncio.CancelledError:
+        job_manager.set_status(job_id, JobStatus.ERROR, error="Job cancelled by user")
+    except Exception as e:
+        logger.error(f"Error in Qwen-Image for job {job_id}: {str(e)}", exc_info=True)
+        job_manager.set_status(job_id, JobStatus.ERROR, error=str(e))
+
+
 async def generate_image_seedream(job_id: str) -> None:
     """
     Execute image generation using Seedream-4 via Replicate API
@@ -151,7 +386,7 @@ async def generate_image_seedream(job_id: str) -> None:
         progress_callback("preparing", "Starting Seedream-4 generation...", 5)
 
         # Calculate cost
-        estimated_cost = replicate_client.calculate_cost(config.max_images)
+        estimated_cost = replicate_client.calculate_cost("seedream", config.max_images)
         logger.info(f"Estimated cost for job {job_id}: ${estimated_cost:.2f} ({config.max_images} images)")
 
         # Run in executor to avoid blocking
@@ -166,6 +401,7 @@ async def generate_image_seedream(job_id: str) -> None:
             config.enhance_prompt,
             config.sequential_image_generation,
             config.max_images,
+            config.disable_safety_checker,
             job_dir,
             progress_callback,
             lambda: job_manager.is_cancelled(job_id)
@@ -184,25 +420,21 @@ async def generate_image_seedream(job_id: str) -> None:
             return
 
         # Calculate actual cost based on output images
-        actual_cost = replicate_client.calculate_cost(len(output_paths))
+        actual_cost = replicate_client.calculate_cost("seedream", len(output_paths))
 
-        # Update job with cost info
+        # Get relative paths for output images
+        output_filenames = [Path(p).name for p in output_paths]
+
+        # Update job with cost info and output images list
         job_manager.update_job_data(job_id, {
             'cost': actual_cost,
-            'images_generated': len(output_paths)
+            'images_generated': len(output_paths),
+            'output_images': output_filenames
         })
-
-        # For now, use the first image as the primary output
-        # TODO: Support multiple output images in download endpoint
-        if output_paths:
-            primary_output = job_dir / 'output.jpg'
-            if primary_output != Path(output_paths[0]):
-                import shutil
-                shutil.copy(output_paths[0], primary_output)
 
         # Mark as complete
         job_manager.set_status(job_id, JobStatus.COMPLETE)
-        progress_callback("complete", f"Seedream-4 complete! Cost: ${actual_cost:.2f}", 100)
+        progress_callback("complete", f"Seedream-4 complete! Generated {len(output_paths)} image(s). Cost: ${actual_cost:.2f}", 100)
         logger.info(f"Job {job_id} completed successfully. Generated {len(output_paths)} images. Cost: ${actual_cost:.2f}")
 
     except asyncio.CancelledError:
@@ -215,10 +447,10 @@ async def generate_image_seedream(job_id: str) -> None:
 
 async def generate_image_task(job_id: str) -> None:
     """
-    Execute image editing task - routes to appropriate model (Qwen or Seedream)
+    Execute image editing task - routes to appropriate model (Qwen, Qwen GGUF, or Seedream)
     Supports cancellation and proper error handling
     """
-    global image_editor
+    global image_editor, image_editor_gguf
 
     try:
         # Get job config to determine which model to use
@@ -233,13 +465,30 @@ async def generate_image_task(job_id: str) -> None:
             logger.info(f"Job {job_id} using Seedream-4 model")
             await generate_image_seedream(job_id)
             return
+        elif config.model_type == ModelType.QWEN_IMAGE_EDIT:
+            logger.info(f"Job {job_id} using Qwen-Image-Edit cloud model")
+            await generate_image_qwen_cloud(job_id)
+            return
+        elif config.model_type == ModelType.QWEN_IMAGE_EDIT_PLUS:
+            logger.info(f"Job {job_id} using Qwen-Image-Edit-Plus model")
+            await generate_image_qwen_plus(job_id)
+            return
+        elif config.model_type == ModelType.QWEN_IMAGE:
+            logger.info(f"Job {job_id} using Qwen-Image text-to-image model")
+            await generate_image_qwen_text_to_image(job_id)
+            return
         elif config.model_type == ModelType.QWEN:
-            logger.info(f"Job {job_id} using Qwen model")
-            # Continue with Qwen processing below
+            logger.info(f"Job {job_id} using Qwen standard model")
+            use_gguf = False
+            editor_instance_name = "image_editor"
+        elif config.model_type == ModelType.QWEN_GGUF:
+            logger.info(f"Job {job_id} using Qwen GGUF quantized model ({config.quantization_level})")
+            use_gguf = True
+            editor_instance_name = "image_editor_gguf"
         else:
             raise Exception(f"Unknown model type: {config.model_type}")
 
-        # Qwen processing starts here
+        # Qwen processing starts here (both standard and GGUF)
         # Acquire semaphore to limit concurrent GPU jobs
         async with active_job_semaphore:
             # Check for cancellation
@@ -248,12 +497,15 @@ async def generate_image_task(job_id: str) -> None:
                 return
 
             # Lazy load the model (only on first use)
-            if image_editor is None:
-                logger.info("Loading Qwen-Image-Edit model...")
+            editor = image_editor_gguf if use_gguf else image_editor
+
+            if editor is None:
+                model_desc = f"GGUF ({config.quantization_level})" if use_gguf else "standard"
+                logger.info(f"Loading Qwen-Image-Edit {model_desc} model...")
                 job_manager.update_progress(
                     job_id,
                     stage="loading_model",
-                    message="Loading Qwen model (first time: ~10-30 min, subsequent: ~30 sec)...",
+                    message=f"Loading Qwen {model_desc} model (first time: ~10-30 min, subsequent: ~30 sec)...",
                     progress=5
                 )
 
@@ -272,16 +524,26 @@ async def generate_image_task(job_id: str) -> None:
                         progress=5 + int(progress_percent * 0.15)  # 5-20%
                     )
 
-                image_editor = ImageEditor(progress_callback=model_loading_callback)
+                # Create the appropriate editor instance
+                if use_gguf:
+                    image_editor_gguf = ImageEditor(
+                        progress_callback=model_loading_callback,
+                        use_gguf=True,
+                        quantization_level=config.quantization_level
+                    )
+                    editor = image_editor_gguf
+                else:
+                    image_editor = ImageEditor(progress_callback=model_loading_callback)
+                    editor = image_editor
 
                 # Mark model loading complete
                 job_manager.update_progress(
                     job_id,
                     stage="loading_model",
-                    message="Model loaded successfully",
+                    message=f"Model loaded successfully ({model_desc})",
                     progress=20
                 )
-                logger.info("Model loaded successfully")
+                logger.info(f"Model loaded successfully ({model_desc})")
 
             # Get job metadata
             job = job_manager.get_job(job_id)
@@ -328,7 +590,7 @@ async def generate_image_task(job_id: str) -> None:
             # Track the future for cleanup
             future = loop.run_in_executor(
                 None,
-                image_editor.edit_image,
+                editor.edit_image,
                 input_paths,
                 config.prompt,
                 config.negative_prompt,
@@ -352,7 +614,10 @@ async def generate_image_task(job_id: str) -> None:
                 logger.info(f"Job {job_id} cancelled after inference")
                 return
 
-            # Mark as complete
+            # Mark as complete and store output image
+            job_manager.update_job_data(job_id, {
+                'output_images': ['output.jpg']  # Qwen always generates single output
+            })
             job_manager.set_status(job_id, JobStatus.COMPLETE)
             progress_callback("complete", "Image editing complete!", 100)
             logger.info(f"Job {job_id} completed successfully")
@@ -369,7 +634,7 @@ async def generate_image_task(job_id: str) -> None:
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     # Startup
-    logger.info("Starting Qwen Image Editor API...")
+    logger.info("Starting Image Editor API...")
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Set event loop in job_manager for WebSocket broadcasting
@@ -429,9 +694,9 @@ async def lifespan(app: FastAPI):
 
 # FastAPI app
 app = FastAPI(
-    title="Qwen Image Editor API",
-    description="AI-powered image editing using Qwen-Image-Edit model",
-    version="1.0.0",
+    title="Image Editor API",
+    description="AI-powered image editing with Qwen, GGUF, and Seedream models",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -471,20 +736,56 @@ async def root():
 
     return {
         "status": "online",
-        "message": "Qwen Image Editor API is running",
+        "message": "Image Editor API is running",
         "device": device,
         "models": {
             "qwen": {
                 "name": "Qwen-Image-Edit",
                 "type": "local",
                 "cost": "free",
-                "description": "20B parameter model running locally"
+                "description": "20B parameter model running locally (full precision)",
+                "inputs": "1-2 images",
+                "outputs": "1 image"
+            },
+            "qwen_gguf": {
+                "name": "Qwen-Image-Edit-2509-GGUF",
+                "type": "local",
+                "cost": "free",
+                "description": "Quantized model for faster inference and lower VRAM usage",
+                "inputs": "1-2 images",
+                "outputs": "1 image"
+            },
+            "qwen_image_edit": {
+                "name": "Qwen-Image-Edit (Cloud)",
+                "type": "cloud",
+                "cost": f"${QWEN_IMAGE_EDIT_PRICE}/prediction",
+                "description": "Simple image editing via Replicate API",
+                "inputs": "1 image",
+                "outputs": "1 image"
+            },
+            "qwen_image_edit_plus": {
+                "name": "Qwen-Image-Edit-Plus",
+                "type": "cloud",
+                "cost": f"${QWEN_IMAGE_EDIT_PLUS_PRICE}/prediction",
+                "description": "Advanced editing with pose/style transfer via Replicate API",
+                "inputs": "1-2 images",
+                "outputs": "1 image"
+            },
+            "qwen_image": {
+                "name": "Qwen-Image",
+                "type": "cloud",
+                "cost": f"${QWEN_IMAGE_PRICE}/prediction",
+                "description": "Text-to-image generation via Replicate API",
+                "inputs": "text only",
+                "outputs": "1 image"
             },
             "seedream": {
                 "name": "ByteDance Seedream-4",
                 "type": "cloud",
                 "cost": f"${SEEDREAM_PRICE_PER_IMAGE}/image",
-                "description": "High-quality image generation via Replicate API"
+                "description": "High-quality multi-image generation via Replicate API",
+                "inputs": "1-10 images",
+                "outputs": "1-15 images"
             }
         }
     }
@@ -576,11 +877,13 @@ async def get_job_status(job_id: str):
     return JobStatusResponse(**job)
 
 
-@app.get("/api/jobs/{job_id}/download")
-async def download_image(job_id: str):
+@app.get("/api/jobs/{job_id}/images")
+async def list_output_images(job_id: str):
     """
-    Download edited image
-    Cleanup happens client-side after successful download
+    List all output images for a job
+
+    Returns:
+        List of output image filenames with metadata
     """
     job = job_manager.get_job(job_id)
     if not job:
@@ -589,16 +892,73 @@ async def download_image(job_id: str):
     if job['status'] != JobStatus.COMPLETE.value:
         raise HTTPException(status_code=400, detail="Job not complete yet")
 
-    output_path = JOBS_DIR / job_id / 'output.jpg'
+    output_images = job.get('output_images', ['output.jpg'])
+    job_dir = JOBS_DIR / job_id
+
+    # Build response with image metadata
+    images_info = []
+    for index, filename in enumerate(output_images):
+        img_path = job_dir / filename
+        if img_path.exists():
+            from PIL import Image
+            try:
+                img = Image.open(img_path)
+                images_info.append({
+                    'index': index,
+                    'filename': filename,
+                    'width': img.width,
+                    'height': img.height,
+                    'size_bytes': img_path.stat().st_size,
+                    'download_url': f"/api/jobs/{job_id}/images/{index}"
+                })
+            except:
+                images_info.append({
+                    'index': index,
+                    'filename': filename,
+                    'download_url': f"/api/jobs/{job_id}/images/{index}"
+                })
+
+    return {
+        'job_id': job_id,
+        'images_count': len(images_info),
+        'images': images_info
+    }
+
+
+@app.get("/api/jobs/{job_id}/images/{image_index}")
+async def download_image_by_index(job_id: str, image_index: int):
+    """
+    Download specific output image by index
+
+    Args:
+        job_id: Job identifier
+        image_index: Index of the image (0-based)
+
+    Returns:
+        Image file
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job['status'] != JobStatus.COMPLETE.value:
+        raise HTTPException(status_code=400, detail="Job not complete yet")
+
+    output_images = job.get('output_images', ['output.jpg'])
+
+    if image_index < 0 or image_index >= len(output_images):
+        raise HTTPException(status_code=404, detail=f"Image index {image_index} out of range (0-{len(output_images)-1})")
+
+    filename = output_images[image_index]
+    output_path = JOBS_DIR / job_id / filename
+
     if not output_path.exists():
         raise HTTPException(status_code=404, detail="Output image not found")
 
-    # Note: Cleanup should be done by DELETE endpoint after successful download
-    # Don't auto-delete here as download could fail/be interrupted
     return FileResponse(
         output_path,
         media_type="image/jpeg",
-        filename=f"edited_{job_id}.jpg"
+        filename=f"edited_{job_id}_{image_index}.jpg"
     )
 
 

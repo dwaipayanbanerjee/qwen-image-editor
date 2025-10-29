@@ -107,9 +107,16 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-8">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">
-        Upload Images
-      </h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">
+          Upload Images
+        </h2>
+        {selectedFiles.length > 0 && (
+          <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
+            {selectedFiles.length} / {maxImages} Selected
+          </span>
+        )}
+      </div>
 
       <div className="space-y-6">
         {/* Upload Area */}
@@ -146,7 +153,10 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
                   {' or drag and drop'}
                 </div>
                 <p className="text-xs text-gray-500">
-                  {maxImages === 1 ? 'One image' : `Up to ${maxImages} images`} • PNG, JPG, JPEG
+                  {maxImages === 1 ? 'One image' : `Up to ${maxImages} images`} • PNG, JPG, JPEG • WEBP
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Qwen models: 1-2 images • Seedream: 1-10 images
                 </p>
               </div>
             </label>
@@ -268,13 +278,20 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
               <div className="text-sm text-blue-800">
                 {selectedFiles.length === 1 ? (
                   <>
-                    <p className="mb-1">Single image selected. The model will edit this image based on your prompt.</p>
+                    <p className="mb-1">Single image selected. All models support single image editing.</p>
                     <p className="text-xs opacity-80">💡 Tip: Click the crop button to optimize image size and aspect ratio.</p>
+                  </>
+                ) : selectedFiles.length === 2 ? (
+                  <>
+                    <p className="mb-1">Two images selected.</p>
+                    <p className="text-xs opacity-80">• Qwen models: Combines side-by-side before editing</p>
+                    <p className="text-xs opacity-80">• Seedream: Uses both as reference inputs</p>
                   </>
                 ) : (
                   <>
-                    <p className="mb-1">Two images selected. The model will combine them side-by-side before applying edits.</p>
-                    <p className="text-xs opacity-80">💡 Tip: Crop images individually before combining for best results.</p>
+                    <p className="mb-1">{selectedFiles.length} images selected.</p>
+                    <p className="text-xs opacity-80">• Qwen models only support 1-2 images (will use first 2)</p>
+                    <p className="text-xs opacity-80">• Seedream can use all {selectedFiles.length} as reference inputs</p>
                   </>
                 )}
               </div>
@@ -287,9 +304,12 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
           <button
             onClick={handleNext}
             disabled={selectedFiles.length === 0}
-            className="px-6 py-3 bg-purple-600 text-white rounded-lg font-semibold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg font-semibold hover:from-purple-700 hover:to-blue-700 disabled:from-gray-300 disabled:to-gray-300 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg flex items-center gap-2"
           >
             Next: Configure Edit
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
           </button>
         </div>
       </div>
