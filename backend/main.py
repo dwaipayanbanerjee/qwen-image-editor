@@ -16,7 +16,7 @@ if 'PYTORCH_CUDA_ALLOC_CONF' not in os.environ:
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pathlib import Path
 from io import BytesIO
 
