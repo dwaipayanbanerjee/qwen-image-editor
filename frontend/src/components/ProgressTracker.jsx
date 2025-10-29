@@ -326,9 +326,14 @@ export default function ProgressTracker({ jobId, onComplete, onError, onCancel, 
         {/* Output Images Display */}
         {status === 'complete' && outputImages.length > 0 && (
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold text-gray-800 text-center">
-              Output Images ({outputImages.length})
-            </h3>
+            <div className="text-center">
+              <h3 className="text-lg font-semibold text-gray-800">
+                Output Images ({outputImages.length})
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                📁 Also saved to <code className="bg-gray-100 px-2 py-0.5 rounded">~/output/</code>
+              </p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {outputImages.map((img) => (
                 <div key={img.index} className="bg-gray-50 rounded-lg p-4 shadow-md">

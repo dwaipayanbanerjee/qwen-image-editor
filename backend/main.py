@@ -49,6 +49,8 @@ os.environ['HF_DATASETS_CACHE'] = os.getenv('HF_DATASETS_CACHE', '/workspace/hug
 
 # Configuration
 JOBS_DIR = Path(os.getenv('JOBS_DIR', '/workspace/jobs'))
+INPUT_FOLDER = Path(os.path.expanduser(os.getenv('INPUT_FOLDER', '~/input')))
+OUTPUT_FOLDER = Path(os.path.expanduser(os.getenv('OUTPUT_FOLDER', '~/output')))
 HOST = os.getenv('HOST', '0.0.0.0')
 PORT = int(os.getenv('PORT', '8000'))
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB limit
@@ -62,6 +64,33 @@ replicate_client: Optional[ReplicateClient] = None
 job_queue: asyncio.Queue = asyncio.Queue(maxsize=10)  # Limit concurrent jobs
 active_job_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)  # Only 1 job at a time on GPU
 executor_futures: Dict[str, Any] = {}  # Track futures for cleanup
+
+
+def copy_outputs_to_folder(job_id: str, output_images: List[str]) -> None:
+    """
+    Copy output images to the default output folder (~/output)
+
+    Args:
+        job_id: Job identifier
+        output_images: List of output image filenames
+    """
+    try:
+        job_dir = JOBS_DIR / job_id
+
+        for filename in output_images:
+            source = job_dir / filename
+            if source.exists():
+                # Create unique filename with job_id prefix to avoid conflicts
+                dest_filename = f"{job_id}_{filename}"
+                dest = OUTPUT_FOLDER / dest_filename
+
+                import shutil
+                shutil.copy2(source, dest)
+                logger.info(f"Copied {filename} to output folder as {dest_filename}")
+
+    except Exception as e:
+        logger.error(f"Error copying outputs to folder for job {job_id}: {str(e)}")
+        # Non-critical, don't raise
 
 
 async def validate_image_file(file: UploadFile, max_size: int = MAX_FILE_SIZE) -> bytes:
@@ -178,6 +207,9 @@ async def generate_image_qwen_cloud(job_id: str) -> None:
             'output_images': output_filenames
         })
 
+        # Copy outputs to ~/output folder
+        copy_outputs_to_folder(job_id, output_filenames)
+
         job_manager.set_status(job_id, JobStatus.COMPLETE)
         progress_callback("complete", f"Qwen-Image-Edit complete! Cost: ${QWEN_IMAGE_EDIT_PRICE:.3f}", 100)
         logger.info(f"Job {job_id} completed with qwen/qwen-image-edit")
@@ -256,6 +288,9 @@ async def generate_image_qwen_plus(job_id: str) -> None:
             'output_images': output_filenames
         })
 
+        # Copy outputs to ~/output folder
+        copy_outputs_to_folder(job_id, output_filenames)
+
         job_manager.set_status(job_id, JobStatus.COMPLETE)
         progress_callback("complete", f"Qwen-Image-Edit-Plus complete! Cost: ${QWEN_IMAGE_EDIT_PLUS_PRICE:.3f}", 100)
         logger.info(f"Job {job_id} completed with qwen/qwen-image-edit-plus")
@@ -330,6 +365,9 @@ async def generate_image_qwen_text_to_image(job_id: str) -> None:
             'images_generated': len(output_paths),
             'output_images': output_filenames
         })
+
+        # Copy outputs to ~/output folder
+        copy_outputs_to_folder(job_id, output_filenames)
 
         job_manager.set_status(job_id, JobStatus.COMPLETE)
         progress_callback("complete", f"Qwen-Image complete! Cost: ${QWEN_IMAGE_PRICE:.3f}", 100)
@@ -431,6 +469,9 @@ async def generate_image_seedream(job_id: str) -> None:
             'images_generated': len(output_paths),
             'output_images': output_filenames
         })
+
+        # Copy outputs to ~/output folder
+        copy_outputs_to_folder(job_id, output_filenames)
 
         # Mark as complete
         job_manager.set_status(job_id, JobStatus.COMPLETE)
@@ -615,9 +656,14 @@ async def generate_image_task(job_id: str) -> None:
                 return
 
             # Mark as complete and store output image
+            output_filenames = ['output.jpg']
             job_manager.update_job_data(job_id, {
-                'output_images': ['output.jpg']  # Qwen always generates single output
+                'output_images': output_filenames  # Qwen always generates single output
             })
+
+            # Copy outputs to ~/output folder
+            copy_outputs_to_folder(job_id, output_filenames)
+
             job_manager.set_status(job_id, JobStatus.COMPLETE)
             progress_callback("complete", "Image editing complete!", 100)
             logger.info(f"Job {job_id} completed successfully")
@@ -636,6 +682,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Image Editor API...")
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    INPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+    OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Input folder: {INPUT_FOLDER}")
+    logger.info(f"Output folder: {OUTPUT_FOLDER}")
 
     # Set event loop in job_manager for WebSocket broadcasting
     loop = asyncio.get_running_loop()
@@ -722,6 +772,62 @@ app.add_middleware(
 )
 
 
+@app.get("/api/input-folder/list")
+async def list_input_folder():
+    """
+    List images in the default input folder (~/input)
+
+    Returns:
+        List of image files with metadata
+    """
+    try:
+        if not INPUT_FOLDER.exists():
+            return {
+                "folder": str(INPUT_FOLDER),
+                "images": [],
+                "count": 0
+            }
+
+        # Supported image extensions
+        image_extensions = {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}
+
+        images = []
+        for file_path in INPUT_FOLDER.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in image_extensions:
+                try:
+                    from PIL import Image
+                    img = Image.open(file_path)
+                    images.append({
+                        'filename': file_path.name,
+                        'path': str(file_path),
+                        'size_bytes': file_path.stat().st_size,
+                        'width': img.width,
+                        'height': img.height,
+                        'modified': file_path.stat().st_mtime
+                    })
+                except:
+                    # If can't open as image, just include basic info
+                    images.append({
+                        'filename': file_path.name,
+                        'path': str(file_path),
+                        'size_bytes': file_path.stat().st_size,
+                        'modified': file_path.stat().st_mtime
+                    })
+
+        # Sort by modified time (newest first)
+        images.sort(key=lambda x: x.get('modified', 0), reverse=True)
+
+        return {
+            "folder": str(INPUT_FOLDER),
+            "images": images,
+            "count": len(images)
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing input folder: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -738,6 +844,8 @@ async def root():
         "status": "online",
         "message": "Image Editor API is running",
         "device": device,
+        "input_folder": str(INPUT_FOLDER),
+        "output_folder": str(OUTPUT_FOLDER),
         "models": {
             "qwen": {
                 "name": "Qwen-Image-Edit",
@@ -789,6 +897,88 @@ async def root():
             }
         }
     }
+
+
+@app.get("/api/input-folder/image/{filename}")
+async def get_input_folder_image(filename: str):
+    """
+    Serve an image from the input folder
+
+    Args:
+        filename: Image filename
+
+    Returns:
+        Image file
+    """
+    try:
+        file_path = INPUT_FOLDER / filename
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Image not found in input folder")
+
+        if file_path.suffix.lower() not in {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}:
+            raise HTTPException(status_code=400, detail="Invalid image format")
+
+        # Determine media type
+        media_type_map = {
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.webp': 'image/webp',
+            '.bmp': 'image/bmp'
+        }
+        media_type = media_type_map.get(file_path.suffix.lower(), 'image/jpeg')
+
+        return FileResponse(
+            file_path,
+            media_type=media_type,
+            filename=filename
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error serving input folder image: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/input-folder/load")
+async def load_from_input_folder(filenames: list[str]):
+    """
+    Load images from input folder by filename
+
+    Args:
+        filenames: List of filenames to load from ~/input
+
+    Returns:
+        Job ID with loaded images
+    """
+    try:
+        # Validate files exist
+        file_paths = []
+        for filename in filenames[:10]:  # Max 10 images
+            file_path = INPUT_FOLDER / filename
+            if not file_path.exists():
+                raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+            if file_path.suffix.lower() not in {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}:
+                raise HTTPException(status_code=400, detail=f"Invalid image format: {filename}")
+            file_paths.append(file_path)
+
+        if not file_paths:
+            raise HTTPException(status_code=400, detail="No valid images specified")
+
+        return {
+            "status": "success",
+            "images_loaded": len(file_paths),
+            "filenames": [p.name for p in file_paths],
+            "message": f"Loaded {len(file_paths)} images from input folder"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error loading from input folder: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/edit")

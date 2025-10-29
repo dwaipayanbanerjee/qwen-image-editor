@@ -1,11 +1,33 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ImageCrop from './ImageCrop'
+import { listInputFolderImages } from '../utils/api'
 
 export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
   const [selectedFiles, setSelectedFiles] = useState([])
   const [previewUrls, setPreviewUrls] = useState([])
   const [croppingIndex, setCroppingIndex] = useState(null) // Track which image is being cropped
   const [imageDimensions, setImageDimensions] = useState([]) // Store dimensions for validation
+  const [inputFolderImages, setInputFolderImages] = useState([])
+  const [showInputFolder, setShowInputFolder] = useState(false)
+  const [loadingInputFolder, setLoadingInputFolder] = useState(false)
+
+  // Load input folder images on mount
+  useEffect(() => {
+    loadInputFolderImages()
+  }, [])
+
+  const loadInputFolderImages = async () => {
+    try {
+      setLoadingInputFolder(true)
+      const response = await listInputFolderImages()
+      setInputFolderImages(response.data.images || [])
+    } catch (err) {
+      console.error('Failed to load input folder:', err)
+      setInputFolderImages([])
+    } finally {
+      setLoadingInputFolder(false)
+    }
+  }
 
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files)
@@ -119,6 +141,94 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
       </div>
 
       <div className="space-y-6">
+        {/* Input Folder Button */}
+        {inputFolderImages.length > 0 && selectedFiles.length < maxImages && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-blue-800">
+                    {inputFolderImages.length} images found in ~/input
+                  </p>
+                  <p className="text-xs text-blue-600">
+                    Drop images in ~/input folder for quick access
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowInputFolder(!showInputFolder)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+              >
+                {showInputFolder ? 'Hide' : 'Browse'} Folder
+              </button>
+            </div>
+
+            {/* Input Folder Grid */}
+            {showInputFolder && (
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 max-h-96 overflow-y-auto">
+                {inputFolderImages.map((img, index) => (
+                  <div
+                    key={index}
+                    className="relative border-2 border-gray-200 rounded-lg p-2 hover:border-blue-500 cursor-pointer transition-all bg-white"
+                    onClick={async () => {
+                      if (selectedFiles.length >= maxImages) return
+
+                      try {
+                        // Fetch the image from backend API
+                        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:6001'
+                        const response = await fetch(`${apiUrl}/api/input-folder/image/${img.filename}`)
+                        if (!response.ok) throw new Error('Failed to fetch image')
+
+                        const blob = await response.blob()
+                        const ext = img.filename.split('.').pop().toLowerCase()
+                        const mimeType = ext === 'png' ? 'image/png' :
+                                        ext === 'webp' ? 'image/webp' :
+                                        ext === 'bmp' ? 'image/bmp' : 'image/jpeg'
+                        const file = new File([blob], img.filename, { type: mimeType })
+
+                        const url = URL.createObjectURL(file)
+                        const dimensions = await getImageDimensions(url)
+
+                        setSelectedFiles(prev => [...prev, file])
+                        setPreviewUrls(prev => [...prev, url])
+                        setImageDimensions(prev => [...prev, dimensions])
+                      } catch (err) {
+                        console.error('Failed to load image from folder:', err)
+                        alert('Failed to load image from ~/input folder. Check console for details.')
+                      }
+                    }}
+                  >
+                    <div className="aspect-square bg-gray-100 rounded overflow-hidden mb-2 relative">
+                      <img
+                        src={`${import.meta.env.VITE_API_URL || 'http://localhost:6001'}/api/input-folder/image/${img.filename}`}
+                        alt={img.filename}
+                        className="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 bg-black bg-opacity-0 hover:bg-opacity-10 transition-all flex items-center justify-center">
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-blue-600 text-white px-2 py-1 rounded text-xs font-semibold">
+                          Click to add
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-700 truncate" title={img.filename}>
+                      {img.filename}
+                    </div>
+                    {img.width && img.height && (
+                      <div className="text-xs text-gray-500">
+                        {img.width}×{img.height}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Upload Area */}
         {selectedFiles.length < maxImages && (
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-purple-500 transition-colors">

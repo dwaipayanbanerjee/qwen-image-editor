@@ -118,6 +118,14 @@ export const getImagePreviewUrl = (jobId, index) => {
 }
 
 /**
+ * List images in ~/input folder
+ * @returns {Promise} - List of images with metadata
+ */
+export const listInputFolderImages = async () => {
+  return await api.get('/api/input-folder/list')
+}
+
+/**
  * Delete/cancel a job
  * @param {string} jobId - Job identifier
  * @returns {Promise}
