@@ -1,5 +1,5 @@
 """
-Image Editor using Qwen-Image-Edit model
+Image Editor using Qwen-Image-Edit-2509-GGUF model
 Handles loading, inference, and image combining
 """
 
@@ -13,13 +13,13 @@ logger = logging.getLogger(__name__)
 
 class ImageEditor:
     """
-    Wrapper for Qwen-Image-Edit pipeline
+    Wrapper for Qwen-Image-Edit-2509-GGUF pipeline
     Supports single image editing and multi-image combining
     """
 
-    def __init__(self, progress_callback: Optional[Callable[[int], None]] = None, use_gguf: bool = False, quantization_level: str = "Q5_K_S"):
+    def __init__(self, progress_callback: Optional[Callable[[int], None]] = None, use_gguf: bool = True, quantization_level: str = "Q5_K_S"):
         """
-        Initialize and load the Qwen-Image-Edit model
+        Initialize and load the Qwen-Image-Edit-2509-GGUF model
 
         Args:
             progress_callback: Optional callback for download progress (receives percentage 0-100)
@@ -52,7 +52,7 @@ class ImageEditor:
 
     def _load_model(self, progress_callback: Optional[Callable[[int], None]] = None):
         """
-        Lazy load the Qwen-Image-Edit pipeline with retry logic
+        Lazy load the Qwen-Image-Edit-2509-GGUF pipeline with retry logic
 
         Args:
             progress_callback: Optional callback for progress updates
@@ -60,6 +60,7 @@ class ImageEditor:
         if self.use_gguf:
             self._load_gguf_model(progress_callback)
         else:
+            # Fallback to standard model (kept for compatibility)
             self._load_standard_model(progress_callback)
 
     def _load_gguf_model(self, progress_callback: Optional[Callable[[int], None]] = None):
@@ -258,7 +259,7 @@ class ImageEditor:
         is_cancelled: Optional[Callable[[], bool]] = None
     ) -> str:
         """
-        Edit image(s) using Qwen-Image-Edit model
+        Edit image(s) using Qwen-Image-Edit-2509-GGUF model
 
         Args:
             image_paths: List of 1-2 image paths

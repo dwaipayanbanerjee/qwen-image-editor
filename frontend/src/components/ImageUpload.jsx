@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
-import ImageCrop from './ImageCrop'
-import { listInputFolderImages } from '../utils/api'
+import { listInputFolderImages, API_URL } from '../utils/api'
 
 export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
   const [selectedFiles, setSelectedFiles] = useState([])
   const [previewUrls, setPreviewUrls] = useState([])
-  const [croppingIndex, setCroppingIndex] = useState(null) // Track which image is being cropped
   const [imageDimensions, setImageDimensions] = useState([]) // Store dimensions for validation
   const [inputFolderImages, setInputFolderImages] = useState([])
   const [showInputFolder, setShowInputFolder] = useState(false)
@@ -89,44 +87,6 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
     }
   }
 
-  const handleCropComplete = async (croppedFile) => {
-    // Replace the file at croppingIndex with the cropped version
-    const newFiles = [...selectedFiles]
-    newFiles[croppingIndex] = croppedFile
-
-    // Update preview URL
-    const newPreviewUrls = [...previewUrls]
-    URL.revokeObjectURL(newPreviewUrls[croppingIndex]) // Clean up old URL
-    const newUrl = URL.createObjectURL(croppedFile)
-    newPreviewUrls[croppingIndex] = newUrl
-
-    // Update dimensions
-    const newDimensions = [...imageDimensions]
-    const dimensions = await getImageDimensions(newUrl)
-    newDimensions[croppingIndex] = dimensions
-
-    setSelectedFiles(newFiles)
-    setPreviewUrls(newPreviewUrls)
-    setImageDimensions(newDimensions)
-    setCroppingIndex(null)
-  }
-
-  const handleSkipCrop = () => {
-    setCroppingIndex(null)
-  }
-
-  // Show crop interface if cropping
-  if (croppingIndex !== null) {
-    return (
-      <ImageCrop
-        image={previewUrls[croppingIndex]}
-        imageName={selectedFiles[croppingIndex].name}
-        onCropComplete={handleCropComplete}
-        onSkip={handleSkipCrop}
-      />
-    )
-  }
-
   return (
     <div className="bg-white rounded-lg shadow-lg p-8">
       <div className="flex items-center justify-between mb-6">
@@ -178,8 +138,7 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
 
                       try {
                         // Fetch the image from backend API
-                        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:6001'
-                        const response = await fetch(`${apiUrl}/api/input-folder/image/${img.filename}`)
+                        const response = await fetch(`${API_URL}/api/input-folder/image/${img.filename}`)
                         if (!response.ok) throw new Error('Failed to fetch image')
 
                         const blob = await response.blob()
@@ -203,7 +162,7 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
                   >
                     <div className="aspect-square bg-gray-100 rounded overflow-hidden mb-2 relative">
                       <img
-                        src={`${import.meta.env.VITE_API_URL || 'http://localhost:6001'}/api/input-folder/image/${img.filename}`}
+                        src={`${API_URL}/api/input-folder/image/${img.filename}`}
                         alt={img.filename}
                         className="w-full h-full object-cover"
                         loading="lazy"
@@ -281,30 +240,11 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
                 <img
                   src={url}
                   alt={`Preview ${index + 1}`}
-                  className="w-full h-64 object-cover rounded-lg border-2 border-gray-200"
+                  className="w-full h-64 object-contain rounded-lg border-2 border-gray-200 bg-gray-50"
                 />
 
-                {/* Top right buttons */}
-                <div className="absolute top-2 right-2 flex space-x-2">
-                  <button
-                    onClick={() => setCroppingIndex(index)}
-                    className="bg-blue-500 text-white rounded-full p-2 hover:bg-blue-600 transition-colors shadow-lg"
-                    title="Crop image"
-                  >
-                    <svg
-                      className="w-4 h-4"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M14 10l-2 2m0 0l-2-2m2 2V6m0 4l2-2m-2 2l-2 2m6 4h4m-4 0a2 2 0 01-2-2m2 2a2 2 0 002 2m-2-2v-4m0 4v4m-6-4a2 2 0 01-2-2m2 2a2 2 0 002 2m-2-2v-4m0 4v4"
-                      />
-                    </svg>
-                  </button>
+                {/* Top right button */}
+                <div className="absolute top-2 right-2">
                   <button
                     onClick={() => handleRemoveImage(index)}
                     className="bg-red-500 text-white rounded-full p-2 hover:bg-red-600 transition-colors shadow-lg"
@@ -364,7 +304,7 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
               </svg>
               <div className="text-sm text-yellow-800">
                 <p className="font-semibold mb-1">Image size outside optimal range</p>
-                <p>For best results, use images between 512px and 4096px. Consider cropping to one of the optimal aspect ratios.</p>
+                <p>For best results, use images between 512px and 4096px. The models can handle various sizes and aspect ratios.</p>
               </div>
             </div>
           </div>
@@ -388,20 +328,29 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
               <div className="text-sm text-blue-800">
                 {selectedFiles.length === 1 ? (
                   <>
-                    <p className="mb-1">Single image selected. All models support single image editing.</p>
-                    <p className="text-xs opacity-80">💡 Tip: Click the crop button to optimize image size and aspect ratio.</p>
+                    <p className="mb-1">Single image selected. All edit models support single image editing.</p>
+                    <p className="text-xs opacity-80">💡 Tip: Edit models preserve your input image dimensions exactly.</p>
                   </>
                 ) : selectedFiles.length === 2 ? (
                   <>
                     <p className="mb-1">Two images selected.</p>
-                    <p className="text-xs opacity-80">• Qwen models: Combines side-by-side before editing</p>
-                    <p className="text-xs opacity-80">• Seedream: Uses both as reference inputs</p>
+                    <p className="text-xs opacity-80">• Qwen GGUF: Combines side-by-side, output matches combined size</p>
+                    <p className="text-xs opacity-80">• Qwen Edit+: Multi-image editing, output preserves first image size</p>
+                    <p className="text-xs opacity-80">• Seedream: Uses both as reference, output based on aspect ratio</p>
+                  </>
+                ) : selectedFiles.length === 3 ? (
+                  <>
+                    <p className="mb-1">Three images selected.</p>
+                    <p className="text-xs opacity-80">• Qwen Edit+: Supports 1-3 images, output preserves dimensions</p>
+                    <p className="text-xs opacity-80">• Seedream: Uses all 3 as reference inputs</p>
+                    <p className="text-xs opacity-80">• Other models: Will use only the images they support</p>
                   </>
                 ) : (
                   <>
                     <p className="mb-1">{selectedFiles.length} images selected.</p>
-                    <p className="text-xs opacity-80">• Qwen models only support 1-2 images (will use first 2)</p>
-                    <p className="text-xs opacity-80">• Seedream can use all {selectedFiles.length} as reference inputs</p>
+                    <p className="text-xs opacity-80">• Qwen Edit+: Supports max 3 images (will use first 3)</p>
+                    <p className="text-xs opacity-80">• Seedream: Can use up to 10 images as reference</p>
+                    <p className="text-xs opacity-80">• Other models: Will use only the images they support</p>
                   </>
                 )}
               </div>
@@ -410,7 +359,20 @@ export default function ImageUpload({ onImagesReady, maxImages = 2 }) {
         )}
 
         {/* Action Buttons */}
-        <div className="flex justify-end space-x-4">
+        <div className="flex justify-between items-center">
+          {selectedFiles.length === 0 && (
+            <button
+              onClick={() => onImagesReady([])}
+              className="px-6 py-3 bg-purple-100 text-purple-700 rounded-lg font-semibold hover:bg-purple-200 transition-colors flex items-center gap-2"
+              title="Skip image upload for text-to-image models (Hunyuan, Qwen-Image)"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+              Skip for Text-to-Image
+            </button>
+          )}
+          <div className="flex-1"></div>
           <button
             onClick={handleNext}
             disabled={selectedFiles.length === 0}

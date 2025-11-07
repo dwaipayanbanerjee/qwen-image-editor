@@ -171,4 +171,7 @@ export const createWebSocket = (jobId, onMessage, onError) => {
   return ws
 }
 
+// Export API_URL for components that need to construct direct URLs
+export { API_URL }
+
 export default api

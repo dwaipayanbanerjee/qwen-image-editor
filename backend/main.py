@@ -1,6 +1,9 @@
 """
-Qwen Image Editor API - FastAPI Backend
-Runs on RunPod A40 GPU, designed for persistence in /workspace
+Image Editor/Generator API - FastAPI Backend
+Supports two distinct workflows:
+- IMAGE EDITING: Preserves input dimensions exactly (qwen_gguf, qwen_image_edit, qwen_image_edit_plus)
+- IMAGE GENERATION: Text-to-image with aspect ratio control (hunyuan, qwen_image)
+- HYBRID: Flexible editing or generation (seedream)
 """
 
 import os
@@ -35,7 +38,8 @@ from replicate_client import (
     SEEDREAM_PRICE_PER_IMAGE,
     QWEN_IMAGE_EDIT_PRICE,
     QWEN_IMAGE_EDIT_PLUS_PRICE,
-    QWEN_IMAGE_PRICE
+    QWEN_IMAGE_PRICE,
+    HUNYUAN_IMAGE_PRICE
 )
 
 # Configure logging
@@ -240,7 +244,7 @@ async def generate_image_qwen_plus(job_id: str) -> None:
         job_dir = JOBS_DIR / job_id
 
         input_paths = []
-        for i in range(1, 3):
+        for i in range(1, 4):  # Support 1-3 images per API spec
             path = job_dir / f'input_{i}.jpg'
             if path.exists():
                 input_paths.append(str(path))
@@ -262,7 +266,7 @@ async def generate_image_qwen_plus(job_id: str) -> None:
             input_paths,
             config.prompt,
             config.go_fast,
-            config.aspect_ratio or "match_input_image",
+            "match_input_image",  # ALWAYS match input for EDIT models
             config.output_format,
             config.output_quality,
             config.disable_safety_checker,
@@ -486,9 +490,110 @@ async def generate_image_seedream(job_id: str) -> None:
         job_manager.set_status(job_id, JobStatus.ERROR, error=str(e))
 
 
+async def generate_image_hunyuan(job_id: str) -> None:
+    """
+    Execute image generation using Hunyuan Image 3 via Replicate API
+    """
+    global replicate_client
+
+    try:
+        # Lazy load Replicate client
+        if replicate_client is None:
+            logger.info("Initializing Replicate client...")
+            replicate_client = ReplicateClient()
+
+        # Check for cancellation
+        if job_manager.is_cancelled(job_id):
+            logger.info(f"Job {job_id} was cancelled before starting")
+            return
+
+        # Get job metadata
+        job = job_manager.get_job(job_id)
+        if not job:
+            raise Exception(f"Job {job_id} not found")
+
+        config = EditConfig(**job['config'])
+        job_dir = JOBS_DIR / job_id
+
+        # Progress callback
+        def progress_callback(stage: str, message: str, progress: int = 0):
+            if job_manager.is_cancelled(job_id):
+                raise asyncio.CancelledError("Job cancelled by user")
+            job_manager.update_progress(job_id, stage=stage, message=message, progress=progress)
+
+        progress_callback("preparing", "Starting Hunyuan Image 3 generation...", 5)
+
+        # Calculate cost
+        estimated_cost = replicate_client.calculate_cost("hunyuan", 1)
+        logger.info(f"Estimated cost for job {job_id}: ${estimated_cost:.2f}")
+
+        # Run in executor to avoid blocking
+        loop = asyncio.get_event_loop()
+        future = loop.run_in_executor(
+            None,
+            replicate_client.generate_image_hunyuan,
+            config.prompt,
+            config.aspect_ratio or "1:1",
+            config.go_fast,
+            config.seed,
+            config.output_format,
+            config.output_quality,
+            config.disable_safety_checker,
+            job_dir,
+            progress_callback,
+            lambda: job_manager.is_cancelled(job_id)
+        )
+        executor_futures[job_id] = future
+
+        try:
+            output_paths = await future
+        finally:
+            if job_id in executor_futures:
+                del executor_futures[job_id]
+
+        # Check cancellation
+        if job_manager.is_cancelled(job_id):
+            logger.info(f"Job {job_id} cancelled after generation")
+            return
+
+        # Calculate actual cost
+        actual_cost = replicate_client.calculate_cost("hunyuan", len(output_paths))
+
+        # Get relative paths for output images
+        output_filenames = [Path(p).name for p in output_paths]
+
+        # Update job with cost info and output images list
+        job_manager.update_job_data(job_id, {
+            'cost': actual_cost,
+            'images_generated': len(output_paths),
+            'output_images': output_filenames
+        })
+
+        # Copy outputs to ~/output folder
+        copy_outputs_to_folder(job_id, output_filenames)
+
+        # Mark as complete
+        job_manager.set_status(job_id, JobStatus.COMPLETE)
+        progress_callback("complete", f"Hunyuan Image 3 complete! Cost: ${actual_cost:.2f}", 100)
+        logger.info(f"Job {job_id} completed successfully. Cost: ${actual_cost:.2f}")
+
+    except asyncio.CancelledError:
+        logger.info(f"Job {job_id} was cancelled")
+        job_manager.set_status(job_id, JobStatus.ERROR, error="Job cancelled by user")
+    except Exception as e:
+        logger.error(f"Error in Hunyuan generation for job {job_id}: {str(e)}", exc_info=True)
+        job_manager.set_status(job_id, JobStatus.ERROR, error=str(e))
+
+
 async def generate_image_task(job_id: str) -> None:
     """
-    Execute image editing task - routes to appropriate model (Qwen, Qwen GGUF, or Seedream)
+    Execute image editing/generation task - routes to appropriate model
+
+    WORKFLOW CATEGORIES:
+    - EDIT models: qwen_gguf, qwen_image_edit, qwen_image_edit_plus (preserve dimensions)
+    - GENERATION models: hunyuan, qwen_image (aspect ratio control)
+    - HYBRID models: seedream (flexible)
+
     Supports cancellation and proper error handling
     """
     global image_editor, image_editor_gguf
@@ -501,29 +606,32 @@ async def generate_image_task(job_id: str) -> None:
 
         config = EditConfig(**job['config'])
 
-        # Route to appropriate model
-        if config.model_type == ModelType.SEEDREAM:
+        # Route to appropriate model (GENERATION models first)
+        if config.model_type == ModelType.HUNYUAN:
+            logger.info(f"Job {job_id} using Hunyuan Image 3 (GENERATION)")
+            await generate_image_hunyuan(job_id)
+            return
+        elif config.model_type == ModelType.QWEN_IMAGE:
+            logger.info(f"Job {job_id} using Qwen-Image text-to-image (GENERATION)")
+            await generate_image_qwen_text_to_image(job_id)
+            return
+        # HYBRID model
+        elif config.model_type == ModelType.SEEDREAM:
             logger.info(f"Job {job_id} using Seedream-4 model")
             await generate_image_seedream(job_id)
             return
+        # EDIT models (cloud)
         elif config.model_type == ModelType.QWEN_IMAGE_EDIT:
-            logger.info(f"Job {job_id} using Qwen-Image-Edit cloud model")
+            logger.info(f"Job {job_id} using Qwen-Image-Edit cloud (EDIT - preserves dimensions)")
             await generate_image_qwen_cloud(job_id)
             return
         elif config.model_type == ModelType.QWEN_IMAGE_EDIT_PLUS:
-            logger.info(f"Job {job_id} using Qwen-Image-Edit-Plus model")
+            logger.info(f"Job {job_id} using Qwen-Image-Edit-Plus (EDIT - preserves dimensions)")
             await generate_image_qwen_plus(job_id)
             return
-        elif config.model_type == ModelType.QWEN_IMAGE:
-            logger.info(f"Job {job_id} using Qwen-Image text-to-image model")
-            await generate_image_qwen_text_to_image(job_id)
-            return
-        elif config.model_type == ModelType.QWEN:
-            logger.info(f"Job {job_id} using Qwen standard model")
-            use_gguf = False
-            editor_instance_name = "image_editor"
+        # EDIT model (local)
         elif config.model_type == ModelType.QWEN_GGUF:
-            logger.info(f"Job {job_id} using Qwen GGUF quantized model ({config.quantization_level})")
+            logger.info(f"Job {job_id} using Qwen GGUF (EDIT - preserves dimensions, {config.quantization_level})")
             use_gguf = True
             editor_instance_name = "image_editor_gguf"
         else:
@@ -799,7 +907,6 @@ async def list_input_folder():
                     img = Image.open(file_path)
                     images.append({
                         'filename': file_path.name,
-                        'path': str(file_path),
                         'size_bytes': file_path.stat().st_size,
                         'width': img.width,
                         'height': img.height,
@@ -809,7 +916,6 @@ async def list_input_folder():
                     # If can't open as image, just include basic info
                     images.append({
                         'filename': file_path.name,
-                        'path': str(file_path),
                         'size_bytes': file_path.stat().st_size,
                         'modified': file_path.stat().st_mtime
                     })
@@ -847,53 +953,59 @@ async def root():
         "input_folder": str(INPUT_FOLDER),
         "output_folder": str(OUTPUT_FOLDER),
         "models": {
-            "qwen": {
-                "name": "Qwen-Image-Edit",
-                "type": "local",
-                "cost": "free",
-                "description": "20B parameter model running locally (full precision)",
-                "inputs": "1-2 images",
-                "outputs": "1 image"
-            },
             "qwen_gguf": {
                 "name": "Qwen-Image-Edit-2509-GGUF",
-                "type": "local",
+                "type": "local_edit",
+                "workflow": "editing",
                 "cost": "free",
-                "description": "Quantized model for faster inference and lower VRAM usage",
+                "description": "Local quantized model - preserves input dimensions",
                 "inputs": "1-2 images",
-                "outputs": "1 image"
+                "outputs": "1 image (matches input size)"
             },
             "qwen_image_edit": {
-                "name": "Qwen-Image-Edit (Cloud)",
-                "type": "cloud",
+                "name": "Qwen-Image-Edit",
+                "type": "cloud_edit",
+                "workflow": "editing",
                 "cost": f"${QWEN_IMAGE_EDIT_PRICE}/prediction",
-                "description": "Simple image editing via Replicate API",
+                "description": "Simple cloud editing - preserves input dimensions",
                 "inputs": "1 image",
-                "outputs": "1 image"
+                "outputs": "1 image (matches input size)"
             },
             "qwen_image_edit_plus": {
                 "name": "Qwen-Image-Edit-Plus",
-                "type": "cloud",
+                "type": "cloud_edit",
+                "workflow": "editing",
                 "cost": f"${QWEN_IMAGE_EDIT_PLUS_PRICE}/prediction",
-                "description": "Advanced editing with pose/style transfer via Replicate API",
-                "inputs": "1-2 images",
-                "outputs": "1 image"
+                "description": "Advanced multi-image editing - preserves input dimensions",
+                "inputs": "1-3 images",
+                "outputs": "1 image (matches first image size)"
+            },
+            "hunyuan": {
+                "name": "Tencent Hunyuan Image 3",
+                "type": "cloud_generation",
+                "workflow": "generation",
+                "cost": f"${HUNYUAN_IMAGE_PRICE}/prediction",
+                "description": "80B text-to-image model - configurable aspect ratio",
+                "inputs": "text only",
+                "outputs": "1 image (user-controlled size)"
             },
             "qwen_image": {
                 "name": "Qwen-Image",
-                "type": "cloud",
+                "type": "cloud_generation",
+                "workflow": "generation",
                 "cost": f"${QWEN_IMAGE_PRICE}/prediction",
-                "description": "Text-to-image generation via Replicate API",
+                "description": "Text-to-image generation - configurable aspect ratio",
                 "inputs": "text only",
-                "outputs": "1 image"
+                "outputs": "1 image (user-controlled size)"
             },
             "seedream": {
                 "name": "ByteDance Seedream-4",
-                "type": "cloud",
+                "type": "cloud_hybrid",
+                "workflow": "hybrid",
                 "cost": f"${SEEDREAM_PRICE_PER_IMAGE}/image",
-                "description": "High-quality multi-image generation via Replicate API",
-                "inputs": "1-10 images",
-                "outputs": "1-15 images"
+                "description": "Hybrid model - can edit (with images) or generate (text-only)",
+                "inputs": "0-10 images (optional)",
+                "outputs": "1-15 images (flexible size)"
             }
         }
     }
@@ -911,7 +1023,18 @@ async def get_input_folder_image(filename: str):
         Image file
     """
     try:
-        file_path = INPUT_FOLDER / filename
+        # SECURITY: Prevent path traversal attacks
+        # Resolve the path and ensure it stays within INPUT_FOLDER
+        file_path = (INPUT_FOLDER / filename).resolve()
+        input_folder_resolved = INPUT_FOLDER.resolve()
+
+        # Check if the resolved path is within INPUT_FOLDER
+        try:
+            file_path.relative_to(input_folder_resolved)
+        except ValueError:
+            # Path is outside INPUT_FOLDER
+            logger.warning(f"Path traversal attempt blocked: {filename}")
+            raise HTTPException(status_code=403, detail="Access denied: path traversal detected")
 
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="Image not found in input folder")
@@ -956,8 +1079,19 @@ async def load_from_input_folder(filenames: list[str]):
     try:
         # Validate files exist
         file_paths = []
+        input_folder_resolved = INPUT_FOLDER.resolve()
+
         for filename in filenames[:10]:  # Max 10 images
-            file_path = INPUT_FOLDER / filename
+            # SECURITY: Prevent path traversal attacks
+            file_path = (INPUT_FOLDER / filename).resolve()
+
+            # Check if the resolved path is within INPUT_FOLDER
+            try:
+                file_path.relative_to(input_folder_resolved)
+            except ValueError:
+                logger.warning(f"Path traversal attempt blocked: {filename}")
+                raise HTTPException(status_code=403, detail=f"Access denied: path traversal detected for {filename}")
+
             if not file_path.exists():
                 raise HTTPException(status_code=404, detail=f"File not found: {filename}")
             if file_path.suffix.lower() not in {'.jpg', '.jpeg', '.png', '.webp', '.bmp'}:
@@ -983,7 +1117,7 @@ async def load_from_input_folder(filenames: list[str]):
 
 @app.post("/api/edit")
 async def edit_image(
-    image1: UploadFile = File(..., description="Primary input image"),
+    image1: Optional[UploadFile] = File(None, description="Primary input image (optional for text-to-image models)"),
     image2: Optional[UploadFile] = File(None, description="Optional second image for combining"),
     config: str = Form(..., description="JSON config with prompt and parameters")
 ):
@@ -991,7 +1125,7 @@ async def edit_image(
     Create new image editing job
 
     Args:
-        image1: Primary image file (required)
+        image1: Primary image file (required for image editing, optional for text-to-image)
         image2: Second image file (optional, for combining)
         config: JSON string with EditConfig fields
 
@@ -1003,8 +1137,20 @@ async def edit_image(
         config_dict = json.loads(config)
         edit_config = EditConfig(**config_dict)
 
+        # Text-to-image models (no input images required)
+        text_to_image_models = {ModelType.HUNYUAN, ModelType.QWEN_IMAGE}
+
+        # Validate that appropriate images are provided
+        if edit_config.model_type not in text_to_image_models and not image1:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{edit_config.model_type}' requires at least one input image"
+            )
+
         # Validate image files (size and format)
-        image1_content = await validate_image_file(image1)
+        image1_content = None
+        if image1:
+            image1_content = await validate_image_file(image1)
 
         image2_content = None
         if image2:
@@ -1015,17 +1161,21 @@ async def edit_image(
         job_dir = JOBS_DIR / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save validated input images
-        image1_path = job_dir / 'input_1.jpg'
-        with open(image1_path, 'wb') as f:
-            f.write(image1_content)
+        # Save validated input images (if any)
+        image_count = 0
+        if image1_content:
+            image1_path = job_dir / 'input_1.jpg'
+            with open(image1_path, 'wb') as f:
+                f.write(image1_content)
+            image_count += 1
 
         if image2_content:
             image2_path = job_dir / 'input_2.jpg'
             with open(image2_path, 'wb') as f:
                 f.write(image2_content)
+            image_count += 1
 
-        logger.info(f"Created job {job_id} with {2 if image2_content else 1} image(s)")
+        logger.info(f"Created job {job_id} with {image_count} image(s) for model {edit_config.model_type}")
 
         # Start processing in background and register task
         task = asyncio.create_task(generate_image_task(job_id))

@@ -4,10 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-AI-powered image editing application with three model options:
-1. **Qwen-Image-Edit** - Full 20B parameter model (local, free, high quality)
-2. **Qwen-Image-Edit-2509-GGUF** - Quantized model (local, free, faster, less VRAM)
-3. **Seedream-4** - Cloud API (paid, fastest, supports multi-image output)
+AI-powered image editing and generation application with two distinct workflows:
+
+**IMAGE EDITING MODELS** (preserve input dimensions):
+1. **Qwen-Image-Edit-2509-GGUF** - Local quantized (free, 1-2 images, output matches input size)
+2. **Qwen-Image-Edit** - Cloud simple edits ($0.01, 1 image, output matches input size)
+3. **Qwen-Image-Edit-Plus** - Cloud advanced ($0.02, 1-3 images, output matches input size)
+
+**IMAGE GENERATION MODELS** (text-to-image, aspect ratio control):
+4. **Hunyuan Image 3** - Tencent 80B model ($0.02, text-only, configurable aspect ratio)
+5. **Qwen-Image** - Text-to-image ($0.015, text-only, configurable aspect ratio)
+
+**HYBRID MODEL** (edit or generate):
+6. **Seedream-4** - ByteDance cloud ($0.03/image, 0-10 inputs, 1-15 outputs, flexible)
 
 Full-stack deployment on your local Mac machine with backend and frontend both running on localhost.
 
@@ -83,9 +92,10 @@ The setup script automatically:
 - Backend: FastAPI + PyTorch with MPS (Metal Performance Shaders)
 - Frontend: React + Vite + Tailwind CSS
 - Models:
-  - Qwen-Image-Edit (20B parameters, BF16 precision)
-  - Qwen-Image-Edit-2509-GGUF (Quantized: Q2_K/Q4_K_M/Q5_K_S/Q8_0)
+  - Qwen-Image-Edit-2509-GGUF (Quantized: Q2_K/Q4_K_M/Q5_K_S/Q8_0, local)
+  - Hunyuan Image 3 (80B parameters, cloud via Replicate)
   - Seedream-4 (Cloud API via Replicate)
+  - Qwen Cloud Variants (via Replicate API)
 
 ### Key Design Patterns
 
@@ -188,16 +198,35 @@ Note: All paths use `~` which expands to your home directory on Mac.
 
 ## Model Details
 
-### Qwen-Image-Edit (Standard)
-- **Parameters:** 20B
-- **Precision:** BF16 on MPS/CUDA, FP32 on CPU
-- **Processing Time:** ~45s (50 steps) on M2/M3 Mac
-- **First Run:** Downloads ~57.7GB, 10-30 min
-- **VRAM:** ~40-60GB
-- **Input Images:** 1-2 (combines side-by-side)
-- **Output Images:** 1
+## Key Workflow Distinction
 
-### Qwen-Image-Edit-2509-GGUF (Quantized)
+### IMAGE EDITING Workflow
+**Philosophy:** Preserve input image dimensions exactly. No resizing, no aspect ratio changes.
+
+**Models:** qwen_gguf, qwen_image_edit, qwen_image_edit_plus
+- User uploads image(s) → Model edits content → Output matches input dimensions
+- Example: 1200×800 input → 1200×800 output (exact same size)
+- Use case: "Change person's hair color", "Remove object", "Style transfer"
+
+### IMAGE GENERATION Workflow
+**Philosophy:** Create new images from text. User controls aspect ratio and composition.
+
+**Models:** hunyuan, qwen_image
+- User enters text prompt → Model generates from scratch → Output uses chosen aspect ratio
+- Example: Prompt "sunset over mountains" → User selects 16:9 → 1664×928 output
+- Use case: "Create image of...", "Generate artwork of..."
+
+### HYBRID Workflow
+**Model:** seedream
+- With images: Flexible editing (can preserve or transform dimensions via aspect_ratio)
+- Without images: Pure generation with aspect ratio control
+
+---
+
+## Model Details
+
+### Qwen-Image-Edit-2509-GGUF (Local EDIT Model)
+- **Type:** Image Editing (preserves input dimensions)
 - **Parameters:** 20B (quantized)
 - **Quantization Levels:**
   - Q2_K: ~7GB VRAM, fastest, lowest quality
@@ -207,16 +236,64 @@ Note: All paths use `~` which expands to your home directory on Mac.
 - **Processing Time:** ~32s (50 steps) - 20-30% faster than standard
 - **First Run:** Downloads 7-22GB depending on quantization
 - **Input Images:** 1-2 (combines side-by-side)
-- **Output Images:** 1
+- **Output Dimensions:** Matches combined input size (no resizing)
 - **Requirements:** `gguf>=0.10.0` package
 
-### Seedream-4 (Cloud API)
+### Qwen-Image-Edit (Cloud EDIT Model)
+- **Type:** Image Editing (preserves input dimensions)
+- **Provider:** Qwen via Replicate
+- **Cost:** $0.01 per prediction
+- **Processing Time:** ~10-20s
+- **Input Images:** 1 (simple single-image edits)
+- **Output Dimensions:** Matches input image exactly
+- **Use Case:** Simple edits like color changes, object removal, basic modifications
+- **Requirements:** REPLICATE_API_TOKEN in .env
+
+### Qwen-Image-Edit-Plus (Cloud EDIT Model)
+- **Type:** Advanced Image Editing (preserves input dimensions)
+- **Provider:** Qwen via Replicate
+- **Cost:** $0.02 per prediction
+- **Processing Time:** ~15-30s
+- **Input Images:** 1-3 (optimal performance with 1-3)
+- **Output Dimensions:** Matches first input image dimensions
+- **Input Constraints:** 384px - 3,072px per dimension (Alibaba Cloud spec)
+- **Optimal Input:** ~1M total pixels (e.g., 1000×1000) per ComfyUI best practice
+- **Use Case:** Pose transfer, style transfer, multi-person composition, product placement
+- **Features:** Combines multiple images, preserves identity, advanced multi-image edits
+- **Requirements:** REPLICATE_API_TOKEN in .env
+
+### Hunyuan Image 3 (Cloud GENERATION Model)
+- **Type:** Text-to-Image Generation (aspect ratio control)
+- **Provider:** Tencent via Replicate
+- **Cost:** $0.02 per prediction
+- **Processing Time:** ~30-45s
+- **Parameters:** 80B total (13B active per token, MoE architecture)
+- **Input:** Text prompt only (no images)
+- **Output Dimensions:** User-controlled via aspect_ratio (1:1, 4:3, 16:9, etc.)
+- **Features:** Aspect ratio control, seed for reproducibility, fast mode
+- **Requirements:** REPLICATE_API_TOKEN in .env
+
+### Qwen-Image (Cloud GENERATION Model)
+- **Type:** Text-to-Image Generation (aspect ratio control)
+- **Provider:** Qwen via Replicate
+- **Cost:** $0.015 per prediction
+- **Processing Time:** ~20-40s
+- **Input:** Text prompt only (no images)
+- **Output Dimensions:** User-controlled via aspect_ratio
+- **Features:** Text-to-image generation, prompt enhancement option
+- **Requirements:** REPLICATE_API_TOKEN in .env
+
+### Seedream-4 (HYBRID Cloud Model)
+- **Type:** Hybrid - Can edit OR generate (flexible dimensions)
 - **Provider:** ByteDance via Replicate
 - **Cost:** $0.03 per output image
 - **Processing Time:** ~30-60s
-- **Input Images:** 1-10 (used as reference)
+- **Input Images:** 0-10 (optional - can work without images)
 - **Output Images:** 1-15 (configurable via max_images)
-- **Features:** Prompt enhancement, sequential generation, auto-retry on errors
+- **Output Dimensions:** User-controlled via aspect_ratio and size parameters
+- **Aspect Ratio Options:** 1:1, 4:3, 16:9, 9:16, match_input_image (when images provided)
+- **Use Case:** Flexible - can edit existing images or generate from scratch
+- **Features:** Prompt enhancement, sequential multi-image generation, auto-retry on errors
 - **Requirements:** REPLICATE_API_TOKEN in .env
 
 ## API Endpoints
@@ -232,10 +309,26 @@ Note: All paths use `~` which expands to your home directory on Mac.
 
 ## Development Notes
 
+**Critical Design Principle: EDIT vs GENERATION**
+- **EDIT models** (qwen_gguf, qwen_image_edit, qwen_image_edit_plus): MUST preserve input dimensions
+  - Never resize input images before processing
+  - Always use `aspect_ratio: "match_input_image"` in API calls
+  - Output should match input dimensions exactly
+  - Do NOT expose aspect ratio controls to users for these models
+
+- **GENERATION models** (hunyuan, qwen_image): Aspect ratio is user-controlled
+  - No input images required
+  - User selects desired output aspect ratio
+  - Expose aspect ratio controls in UI
+
+- **HYBRID models** (seedream): User chooses behavior
+  - With images: Can use "match_input_image" or custom aspect ratio
+  - Without images: User-controlled aspect ratio
+
 **Adding New Model Parameters:**
 1. Update `models.py:EditConfig` with new field
-2. Update `image_editor.py:edit_image()` to use parameter
-3. Update `frontend/src/components/EditConfig.jsx` with UI input
+2. Update appropriate handler in `main.py` or `replicate_client.py`
+3. Update `frontend/src/components/EditConfig.jsx` with UI input (only for relevant models)
 
 **Testing Locally:**
 - Backend requires Mac with Apple Silicon (MPS support)

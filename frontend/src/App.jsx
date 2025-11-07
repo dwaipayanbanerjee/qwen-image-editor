@@ -9,11 +9,12 @@ function App() {
   const [step, setStep] = useState('upload') // upload, config, processing
   const [images, setImages] = useState([]) // Array of File objects (1-10 images depending on model)
   const [config, setConfig] = useState({
-    model_type: 'qwen',
+    model_type: 'qwen_gguf',
     prompt: '',
     negative_prompt: '',
     true_cfg_scale: 4.0,
-    num_inference_steps: 50
+    num_inference_steps: 50,
+    quantization_level: 'Q5_K_S'
   })
   const [jobId, setJobId] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -52,7 +53,11 @@ function App() {
   }
 
   const handleGenerate = async () => {
-    if (images.length === 0) {
+    // Text-to-image models don't require input images
+    const textToImageModels = ['hunyuan', 'qwen_image']
+    const requiresImage = !textToImageModels.includes(config.model_type)
+
+    if (requiresImage && images.length === 0) {
       setError('Please upload at least one image')
       return
     }
@@ -97,11 +102,12 @@ function App() {
     setStep('upload')
     setImages([])
     setConfig({
-      model_type: 'qwen',
+      model_type: 'qwen_gguf',
       prompt: '',
       negative_prompt: '',
       true_cfg_scale: 4.0,
-      num_inference_steps: 50
+      num_inference_steps: 50,
+      quantization_level: 'Q5_K_S'
     })
     localStorage.removeItem('qwen_editor_current_job')
   }
@@ -124,7 +130,7 @@ function App() {
             Image Editor
           </h1>
           <p className="text-gray-600 text-lg">
-            AI-powered editing with Qwen, GGUF, and Seedream models
+            AI-powered editing with Qwen GGUF, Hunyuan, and Seedream models
           </p>
           <div className="mt-2 flex justify-center gap-2 text-xs">
             <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded-full font-medium">Local Models</span>

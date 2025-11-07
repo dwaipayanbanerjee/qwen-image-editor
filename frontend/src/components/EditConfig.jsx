@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
 // Pricing constants
+const HUNYUAN_IMAGE_PRICE = 0.02
 const SEEDREAM_PRICE_PER_IMAGE = 0.03
 const QWEN_IMAGE_EDIT_PRICE = 0.01
 const QWEN_IMAGE_EDIT_PLUS_PRICE = 0.02
@@ -27,10 +28,10 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
     }
   }, [])
 
-  // Ensure config has model_type, default to 'qwen'
+  // Ensure config has model_type, default to 'qwen_gguf'
   useEffect(() => {
     if (!config.model_type) {
-      onChange({ ...config, model_type: 'qwen' })
+      onChange({ ...config, model_type: 'qwen_gguf' })
     }
   }, [])
 
@@ -102,7 +103,10 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
     // Update model type and set appropriate defaults
     const updates = { ...config, model_type: modelType }
 
-    if (modelType === 'seedream') {
+    if (modelType === 'hunyuan') {
+      // Set Hunyuan defaults
+      updates.aspect_ratio = config.aspect_ratio || '1:1'
+    } else if (modelType === 'seedream') {
       // Set Seedream defaults
       updates.size = config.size || '2K'
       updates.aspect_ratio = config.aspect_ratio || '4:3'
@@ -142,7 +146,10 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
   }
 
   const estimatedTime = () => {
-    if (config.model_type === 'seedream') {
+    if (config.model_type === 'hunyuan') {
+      // Hunyuan is cloud-based, typically 30-45 seconds
+      return config.go_fast ? 30 : 45
+    } else if (config.model_type === 'seedream') {
       // Seedream is faster, typically 30-60 seconds
       return config.enhance_prompt ? 60 : 40
     } else if (config.model_type === 'qwen_gguf') {
@@ -159,7 +166,9 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
   }
 
   const estimatedCost = () => {
-    if (config.model_type === 'seedream') {
+    if (config.model_type === 'hunyuan') {
+      return HUNYUAN_IMAGE_PRICE.toFixed(2)
+    } else if (config.model_type === 'seedream') {
       const maxImages = config.max_images || 1
       return (maxImages * SEEDREAM_PRICE_PER_IMAGE).toFixed(2)
     } else if (config.model_type === 'qwen_image_edit') {
@@ -202,7 +211,7 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
                 <img
                   src={url}
                   alt={`Selected ${index + 1}`}
-                  className="w-full h-40 object-cover rounded-lg border-2 border-gray-200"
+                  className="w-full h-40 object-contain rounded-lg border-2 border-gray-200 bg-gray-50"
                 />
                 <div className="absolute bottom-2 left-2 bg-black bg-opacity-60 text-white px-2 py-1 rounded text-sm">
                   Image {index + 1}
@@ -211,16 +220,42 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
             ))}
           </div>
 
-          {/* Warning for too many images with Qwen */}
-          {(config.model_type === 'qwen' || config.model_type === 'qwen_gguf') && images.length > 2 && (
+          {/* Warning for too many images with specific models */}
+          {config.model_type === 'qwen_gguf' && images.length > 2 && (
             <div className="mt-3 bg-yellow-50 border border-yellow-300 rounded-lg p-3">
               <div className="flex items-start">
                 <svg className="w-5 h-5 text-yellow-600 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
                 <div className="text-sm text-yellow-800">
-                  <p className="font-semibold">Note: Qwen models support maximum 2 images</p>
-                  <p className="text-xs">Only the first 2 images will be used. For {images.length} images, use Seedream model instead.</p>
+                  <p className="font-semibold">Note: Qwen GGUF supports maximum 2 images</p>
+                  <p className="text-xs">Only the first 2 images will be used. For {images.length} images, use Qwen Edit+ or Seedream instead.</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {config.model_type === 'qwen_image_edit' && images.length > 1 && (
+            <div className="mt-3 bg-yellow-50 border border-yellow-300 rounded-lg p-3">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-yellow-600 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <div className="text-sm text-yellow-800">
+                  <p className="font-semibold">Note: Qwen Edit supports only 1 image</p>
+                  <p className="text-xs">Only the first image will be used. For multiple images, use Qwen Edit+ or Seedream.</p>
+                </div>
+              </div>
+            </div>
+          )}
+          {config.model_type === 'qwen_image_edit_plus' && images.length > 3 && (
+            <div className="mt-3 bg-yellow-50 border border-yellow-300 rounded-lg p-3">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-yellow-600 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <div className="text-sm text-yellow-800">
+                  <p className="font-semibold">Note: Qwen Edit+ supports maximum 3 images</p>
+                  <p className="text-xs">Only the first 3 images will be used. For {images.length} images, use Seedream instead.</p>
                 </div>
               </div>
             </div>
@@ -236,35 +271,7 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
           {/* Local Models */}
           <div className="mb-4">
             <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Local Models (Free)</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Qwen Standard */}
-            <button
-              type="button"
-              onClick={() => handleModelTypeChange({ target: { value: 'qwen' }})}
-              className={`relative p-4 border-2 rounded-lg text-left transition-all ${
-                config.model_type === 'qwen'
-                  ? 'border-purple-500 bg-purple-50 shadow-md'
-                  : 'border-gray-200 hover:border-purple-300'
-              }`}
-            >
-              <div className="flex items-start justify-between mb-2">
-                <div className="font-semibold text-gray-800">Qwen Standard</div>
-                <div className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">FREE</div>
-              </div>
-              <div className="text-xs text-gray-600 space-y-1">
-                <div>• Full quality (20B params)</div>
-                <div>• ~45s / 50 steps</div>
-                <div>• 64GB RAM needed</div>
-              </div>
-              {config.model_type === 'qwen' && (
-                <div className="absolute top-2 right-2">
-                  <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              )}
-            </button>
-
+            <div className="grid grid-cols-1 gap-3">
             {/* Qwen GGUF */}
             <button
               type="button"
@@ -299,7 +306,35 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
           {/* Cloud Models */}
           <div className="mb-3">
             <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Cloud Models (Paid via Replicate)</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+            {/* Hunyuan Image 3 */}
+            <button
+              type="button"
+              onClick={() => handleModelTypeChange({ target: { value: 'hunyuan' }})}
+              className={`relative p-4 border-2 rounded-lg text-left transition-all ${
+                config.model_type === 'hunyuan'
+                  ? 'border-purple-500 bg-purple-50 shadow-md'
+                  : 'border-gray-200 hover:border-purple-300'
+              }`}
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div className="font-semibold text-gray-800 text-sm">Hunyuan 3</div>
+                <div className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">$0.02</div>
+              </div>
+              <div className="text-xs text-gray-600 space-y-1">
+                <div>• Text-to-image (80B)</div>
+                <div>• High quality</div>
+                <div>• ~30-45s</div>
+              </div>
+              {config.model_type === 'hunyuan' && (
+                <div className="absolute top-2 right-2">
+                  <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              )}
+            </button>
+
             {/* Qwen-Image-Edit Cloud */}
             <button
               type="button"
@@ -344,8 +379,8 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
               </div>
               <div className="text-xs text-gray-600 space-y-1">
                 <div>• Pose/style transfer</div>
-                <div>• 1-2 inputs</div>
-                <div>• Advanced edits</div>
+                <div>• 1-3 inputs</div>
+                <div>• Preserves dimensions</div>
               </div>
               {config.model_type === 'qwen_image_edit_plus' && (
                 <div className="absolute top-2 right-2">
@@ -416,21 +451,21 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
 
           {/* Hidden select for form compatibility */}
           <select
-            value={config.model_type || 'qwen'}
+            value={config.model_type || 'qwen_gguf'}
             onChange={handleModelTypeChange}
             className="hidden"
           >
-            <option value="qwen">Qwen-Image-Edit</option>
             <option value="qwen_gguf">Qwen-Image-Edit-2509 GGUF</option>
+            <option value="hunyuan">Hunyuan Image 3</option>
+            <option value="seedream">Seedream-4</option>
             <option value="qwen_image_edit">Qwen-Image-Edit (Cloud)</option>
             <option value="qwen_image_edit_plus">Qwen-Image-Edit-Plus</option>
             <option value="qwen_image">Qwen-Image (Text-to-Image)</option>
-            <option value="seedream">Seedream-4</option>
           </select>
           {/* Model Info Badge */}
           <div className={`p-3 rounded-lg text-sm border ${
-            config.model_type === 'qwen' ? 'bg-purple-50 border-purple-200' :
             config.model_type === 'qwen_gguf' ? 'bg-green-50 border-green-200' :
+            config.model_type === 'hunyuan' ? 'bg-purple-50 border-purple-200' :
             config.model_type === 'qwen_image_edit' ? 'bg-orange-50 border-orange-200' :
             config.model_type === 'qwen_image_edit_plus' ? 'bg-pink-50 border-pink-200' :
             config.model_type === 'qwen_image' ? 'bg-indigo-50 border-indigo-200' :
@@ -438,8 +473,8 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
           }`}>
             <div className="flex items-start gap-2">
               <svg className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
-                config.model_type === 'qwen' ? 'text-purple-600' :
                 config.model_type === 'qwen_gguf' ? 'text-green-600' :
+                config.model_type === 'hunyuan' ? 'text-purple-600' :
                 config.model_type === 'qwen_image_edit' ? 'text-orange-600' :
                 config.model_type === 'qwen_image_edit_plus' ? 'text-pink-600' :
                 config.model_type === 'qwen_image' ? 'text-indigo-600' :
@@ -448,25 +483,25 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
               </svg>
               <div className="flex-1">
-                {config.model_type === 'qwen' ? (
+                {config.model_type === 'qwen_gguf' ? (
                   <>
-                    <p className="font-medium text-gray-800">Local processing with full 20B parameter model</p>
-                    <p className="text-xs text-gray-600 mt-1">1-2 input images • 1 output • {config.num_inference_steps} steps</p>
+                    <p className="font-medium text-gray-800">Local image editing - preserves input dimensions</p>
+                    <p className="text-xs text-gray-600 mt-1">1-2 input images • 1 output • Matches input size • {config.num_inference_steps} steps • {config.quantization_level || 'Q5_K_S'}</p>
                   </>
-                ) : config.model_type === 'qwen_gguf' ? (
+                ) : config.model_type === 'hunyuan' ? (
                   <>
-                    <p className="font-medium text-gray-800">Faster quantized model, best for most users</p>
-                    <p className="text-xs text-gray-600 mt-1">1-2 input images • 1 output • {config.num_inference_steps} steps • {config.quantization_level || 'Q5_K_S'}</p>
+                    <p className="font-medium text-gray-800">Tencent's 80B text-to-image model via Replicate</p>
+                    <p className="text-xs text-gray-600 mt-1">Text prompt only • 1 output • $0.02 per prediction • Aspect ratio: {config.aspect_ratio || '1:1'}</p>
                   </>
                 ) : config.model_type === 'qwen_image_edit' ? (
                   <>
                     <p className="font-medium text-gray-800">Simple cloud-based image editing</p>
-                    <p className="text-xs text-gray-600 mt-1">1 input image • 1 output • $0.01 per prediction</p>
+                    <p className="text-xs text-gray-600 mt-1">1 input image • 1 output • Preserves input dimensions • $0.01 per prediction</p>
                   </>
                 ) : config.model_type === 'qwen_image_edit_plus' ? (
                   <>
-                    <p className="font-medium text-gray-800">Advanced pose and style transfer</p>
-                    <p className="text-xs text-gray-600 mt-1">1-2 input images • 1 output • $0.02 per prediction</p>
+                    <p className="font-medium text-gray-800">Advanced pose and style transfer editing</p>
+                    <p className="text-xs text-gray-600 mt-1">1-3 input images • 1 output • Preserves input dimensions • $0.02 per prediction</p>
                   </>
                 ) : config.model_type === 'qwen_image' ? (
                   <>
@@ -567,8 +602,23 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
           </p>
         </div>
 
-        {/* Negative Prompt (Qwen models only) */}
-        {(config.model_type === 'qwen' || config.model_type === 'qwen_gguf') && (
+        {/* Edit Model Info Banner */}
+        {(config.model_type === 'qwen_gguf' || config.model_type === 'qwen_image_edit' || config.model_type === 'qwen_image_edit_plus') && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-start">
+              <svg className="w-5 h-5 text-green-600 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              <div className="text-sm text-green-800">
+                <p className="font-semibold mb-1">Dimension Preservation</p>
+                <p>This is an EDIT model - output image will match your input dimensions exactly (no resizing).</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Negative Prompt (Qwen GGUF only) */}
+        {config.model_type === 'qwen_gguf' && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Negative Prompt (Optional)
@@ -598,7 +648,7 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
         {showAdvanced && (
           <div className="bg-gray-50 rounded-lg p-4 space-y-4">
             {/* Common Cloud Model Settings */}
-            {(config.model_type === 'seedream' || config.model_type === 'qwen_image_edit' || config.model_type === 'qwen_image_edit_plus' || config.model_type === 'qwen_image') && (
+            {(config.model_type === 'hunyuan' || config.model_type === 'seedream' || config.model_type === 'qwen_image_edit' || config.model_type === 'qwen_image_edit_plus' || config.model_type === 'qwen_image') && (
               <div className="pb-4 border-b border-gray-300">
                 <h4 className="font-semibold text-sm text-gray-700 mb-3">Cloud Model Settings</h4>
                 <div className="flex items-center">
@@ -619,8 +669,46 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
               </div>
             )}
 
+            {/* Hunyuan Settings */}
+            {config.model_type === 'hunyuan' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Aspect Ratio
+                  </label>
+                  <select
+                    value={config.aspect_ratio || '1:1'}
+                    onChange={handleAspectRatioChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="1:1">1:1 (Square)</option>
+                    <option value="4:3">4:3 (Standard)</option>
+                    <option value="3:4">3:4 (Portrait)</option>
+                    <option value="16:9">16:9 (Widescreen)</option>
+                    <option value="9:16">9:16 (Mobile)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Random Seed (Optional)
+                  </label>
+                  <input
+                    type="number"
+                    value={config.seed || ''}
+                    onChange={(e) => onChange({ ...config, seed: e.target.value ? parseInt(e.target.value) : null })}
+                    placeholder="Leave empty for random"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    Set a specific seed for reproducible results
+                  </p>
+                </div>
+              </>
+            )}
+
             {/* Qwen Local Models Settings */}
-            {(config.model_type === 'qwen' || config.model_type === 'qwen_gguf') && (
+            {config.model_type === 'qwen_gguf' && (
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -804,7 +892,7 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
                 <p className="font-semibold">Processing Time</p>
                 <p className="text-2xl font-bold mt-1">~{estimatedTime()}s</p>
                 <p className="text-xs mt-1 text-blue-600">
-                  {config.model_type === 'seedream' ? 'Cloud processing' : 'Local processing'}
+                  {(config.model_type === 'hunyuan' || config.model_type === 'seedream' || config.model_type === 'qwen_image_edit' || config.model_type === 'qwen_image_edit_plus' || config.model_type === 'qwen_image') ? 'Cloud processing' : 'Local processing'}
                 </p>
               </div>
             </div>
@@ -812,26 +900,26 @@ export default function EditConfig({ images, config, onChange, onGenerate, onBac
 
           {/* Cost Estimate */}
           <div className={`rounded-lg p-4 border ${
-            config.model_type === 'qwen' || config.model_type === 'qwen_gguf'
+            config.model_type === 'qwen_gguf'
               ? 'bg-green-50 border-green-200'
               : 'bg-yellow-50 border-yellow-200'
           }`}>
             <div className="flex items-start">
               <svg className={`w-5 h-5 mt-0.5 mr-2 ${
-                config.model_type === 'qwen' || config.model_type === 'qwen_gguf' ? 'text-green-600' : 'text-yellow-600'
+                config.model_type === 'qwen_gguf' ? 'text-green-600' : 'text-yellow-600'
               }`} fill="currentColor" viewBox="0 0 20 20">
                 <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z" />
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clipRule="evenodd" />
               </svg>
               <div className={`text-sm ${
-                config.model_type === 'qwen' || config.model_type === 'qwen_gguf' ? 'text-green-800' : 'text-yellow-800'
+                config.model_type === 'qwen_gguf' ? 'text-green-800' : 'text-yellow-800'
               }`}>
                 <p className="font-semibold">Cost</p>
                 <p className="text-2xl font-bold mt-1">
-                  {config.model_type === 'qwen' || config.model_type === 'qwen_gguf' ? 'FREE' : `$${estimatedCost()}`}
+                  {config.model_type === 'qwen_gguf' ? 'FREE' : `$${estimatedCost()}`}
                 </p>
                 <p className="text-xs mt-1">
-                  {config.model_type === 'qwen' || config.model_type === 'qwen_gguf' ? 'No API costs' :
+                  {config.model_type === 'qwen_gguf' ? 'No API costs' :
                    config.model_type === 'seedream' ? `${config.max_images || 1} × $0.03 per image` :
                    'Per prediction cost'}
                 </p>

@@ -17,6 +17,7 @@ SEEDREAM_PRICE_PER_IMAGE = 0.03  # $0.03 per output image
 QWEN_IMAGE_EDIT_PRICE = 0.01  # $0.01 per prediction
 QWEN_IMAGE_EDIT_PLUS_PRICE = 0.02  # $0.02 per prediction
 QWEN_IMAGE_PRICE = 0.015  # $0.015 per prediction
+HUNYUAN_IMAGE_PRICE = 0.02  # $0.02 per prediction (estimated)
 
 
 class ReplicateClient:
@@ -432,10 +433,10 @@ class ReplicateClient:
         Advanced editing with pose/style transfer using qwen/qwen-image-edit-plus
 
         Args:
-            image_paths: 1-2 input images
+            image_paths: 1-3 input images (optimal performance with 1-3)
             prompt: Edit instruction (e.g., "person in image 2 adopts pose from image 1")
             go_fast: Enable fast mode
-            aspect_ratio: Aspect ratio
+            aspect_ratio: Should always be "match_input_image" for EDIT models
             output_format: Output format
             output_quality: Output quality
             output_dir: Output directory
@@ -453,8 +454,8 @@ class ReplicateClient:
             if is_cancelled and is_cancelled():
                 raise Exception("Job cancelled")
 
-            # Open image files
-            for img_path in image_paths[:2]:
+            # Open image files (support up to 3 images per API spec)
+            for img_path in image_paths[:3]:
                 fh = open(img_path, 'rb')
                 file_handles.append(fh)
 
@@ -642,6 +643,108 @@ class ReplicateClient:
             logger.error(f"Error calling qwen/qwen-image: {str(e)}", exc_info=True)
             raise
 
+    def generate_image_hunyuan(
+        self,
+        prompt: str,
+        aspect_ratio: str = "1:1",
+        go_fast: bool = True,
+        seed: Optional[int] = None,
+        output_format: str = "webp",
+        output_quality: int = 95,
+        disable_safety_checker: bool = True,
+        output_dir: Path = None,
+        progress_callback: Optional[Callable] = None,
+        is_cancelled: Optional[Callable[[], bool]] = None
+    ) -> List[str]:
+        """
+        Text-to-image generation using tencent/hunyuan-image-3
+
+        Args:
+            prompt: Text description for image generation
+            aspect_ratio: Aspect ratio (e.g., "1:1", "16:9", "4:3")
+            go_fast: Enable fast mode for quicker generation
+            seed: Random seed for reproducible generation
+            output_format: Output format (webp, jpg, png)
+            output_quality: Output quality 0-100
+            disable_safety_checker: Disable safety checker
+            output_dir: Output directory
+            progress_callback: Progress callback
+            is_cancelled: Cancellation checker
+
+        Returns:
+            List of output image paths
+        """
+        try:
+            if progress_callback:
+                progress_callback("preparing", "Preparing for Hunyuan Image 3 generation...", 10)
+
+            if is_cancelled and is_cancelled():
+                raise Exception("Job cancelled")
+
+            input_data = {
+                "prompt": prompt,
+                "aspect_ratio": aspect_ratio,
+                "go_fast": go_fast,
+                "output_format": output_format,
+                "output_quality": output_quality,
+                "disable_safety_checker": disable_safety_checker
+            }
+
+            if seed is not None:
+                input_data["seed"] = seed
+
+            logger.info(f"Calling tencent/hunyuan-image-3 for text-to-image generation")
+            logger.info(f"Prompt: {prompt[:100]}...")
+            logger.info(f"Aspect ratio: {aspect_ratio}, Fast mode: {go_fast}")
+
+            if progress_callback:
+                progress_callback("generating", "Generating image with Hunyuan Image 3...", 30)
+
+            output = replicate.run("tencent/hunyuan-image-3", input=input_data)
+
+            if progress_callback:
+                progress_callback("downloading", "Downloading result...", 70)
+
+            # Download output
+            output_paths = []
+            if not output_dir:
+                output_dir = Path(".")
+
+            if not isinstance(output, list):
+                output = [output]
+
+            for index, item in enumerate(output):
+                if is_cancelled and is_cancelled():
+                    raise Exception("Job cancelled during download")
+
+                output_path = output_dir / f"output_{index}.{output_format}"
+
+                if hasattr(item, 'read'):
+                    with open(output_path, 'wb') as f:
+                        f.write(item.read())
+                elif hasattr(item, 'url'):
+                    response = requests.get(item.url(), timeout=60)
+                    response.raise_for_status()
+                    with open(output_path, 'wb') as f:
+                        f.write(response.content)
+                else:
+                    response = requests.get(item, timeout=60)
+                    response.raise_for_status()
+                    with open(output_path, 'wb') as f:
+                        f.write(response.content)
+
+                output_paths.append(str(output_path))
+
+            if progress_callback:
+                progress_callback("complete", "Hunyuan Image 3 generation complete!", 95)
+
+            logger.info(f"Generated {len(output_paths)} image(s) with tencent/hunyuan-image-3")
+            return output_paths
+
+        except Exception as e:
+            logger.error(f"Error calling tencent/hunyuan-image-3: {str(e)}", exc_info=True)
+            raise
+
     def calculate_cost(self, model_type: str, num_output_images: int = 1) -> float:
         """
         Calculate cost for Replicate generation
@@ -661,6 +764,8 @@ class ReplicateClient:
             return QWEN_IMAGE_EDIT_PLUS_PRICE
         elif model_type == "qwen_image":
             return QWEN_IMAGE_PRICE
+        elif model_type == "hunyuan":
+            return HUNYUAN_IMAGE_PRICE
         return 0.0
 
     @staticmethod
@@ -670,5 +775,6 @@ class ReplicateClient:
             "seedream": SEEDREAM_PRICE_PER_IMAGE,
             "qwen_image_edit": QWEN_IMAGE_EDIT_PRICE,
             "qwen_image_edit_plus": QWEN_IMAGE_EDIT_PLUS_PRICE,
-            "qwen_image": QWEN_IMAGE_PRICE
+            "qwen_image": QWEN_IMAGE_PRICE,
+            "hunyuan": HUNYUAN_IMAGE_PRICE
         }

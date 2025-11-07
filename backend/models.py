@@ -1,5 +1,24 @@
 """
 Pydantic models for request/response validation
+
+CRITICAL DESIGN PRINCIPLE - EDIT vs GENERATION:
+
+1. IMAGE EDITING models (qwen_gguf, qwen_image_edit, qwen_image_edit_plus):
+   - Require input images
+   - PRESERVE input dimensions exactly (no resizing)
+   - aspect_ratio is FORCED to "match_input_image" in backend
+   - Do NOT expose aspect_ratio to users for these models
+   - Output dimensions = Input dimensions
+
+2. IMAGE GENERATION models (hunyuan, qwen_image):
+   - No input images (text-to-image)
+   - User controls aspect_ratio (1:1, 4:3, 16:9, etc.)
+   - Output dimensions determined by aspect_ratio selection
+
+3. HYBRID models (seedream):
+   - Optional input images (0-10)
+   - Flexible aspect_ratio control
+   - Can edit (with images) or generate (without images)
 """
 
 from pydantic import BaseModel, Field
@@ -15,43 +34,60 @@ class JobStatus(str, Enum):
 
 
 class ModelType(str, Enum):
-    """Available image editing models"""
-    # Local models (free)
-    QWEN = "qwen"  # Local Qwen-Image-Edit model (free, slower)
-    QWEN_GGUF = "qwen_gguf"  # Quantized Qwen-Image-Edit-2509 model (free, faster, less VRAM)
+    """Available image editing and generation models"""
+    # LOCAL EDIT MODELS (require input images, preserve dimensions)
+    QWEN_GGUF = "qwen_gguf"  # Qwen-Image-Edit-2509 GGUF (free, 1-2 images → 1 image, matches input size)
 
-    # Cloud models (paid via Replicate)
-    SEEDREAM = "seedream"  # ByteDance Seedream-4 ($0.03/image, multi-output)
-    QWEN_IMAGE_EDIT = "qwen_image_edit"  # Qwen-Image-Edit cloud ($0.01/image, simple edits)
-    QWEN_IMAGE_EDIT_PLUS = "qwen_image_edit_plus"  # Qwen-Image-Edit-Plus ($0.02/image, pose/style transfer)
-    QWEN_IMAGE = "qwen_image"  # Qwen-Image ($0.015/image, text-to-image generation)
+    # CLOUD GENERATION MODELS (text-to-image, aspect ratio control)
+    HUNYUAN = "hunyuan"  # Tencent Hunyuan Image 3 ($0.02/image, text → 1 image)
+    QWEN_IMAGE = "qwen_image"  # Qwen-Image ($0.015/image, text → 1 image)
+
+    # CLOUD EDIT MODELS (require input images, preserve dimensions)
+    QWEN_IMAGE_EDIT = "qwen_image_edit"  # Qwen-Image-Edit ($0.01/image, 1 image → 1 image, matches input size)
+    QWEN_IMAGE_EDIT_PLUS = "qwen_image_edit_plus"  # Qwen-Image-Edit-Plus ($0.02/image, 1-3 images → 1 image, matches input size)
+
+    # HYBRID MODEL (can edit or generate, flexible aspect ratio)
+    SEEDREAM = "seedream"  # ByteDance Seedream-4 ($0.03/image, 0-10 images → 1-15 images)
 
 
 class EditConfig(BaseModel):
     """
-    Configuration for image editing request
+    Configuration for image editing/generation request
+
+    CRITICAL DESIGN PRINCIPLE:
+    - EDIT models (qwen_gguf, qwen_image_edit, qwen_image_edit_plus):
+      → PRESERVE input dimensions exactly (no resizing, aspect_ratio always "match_input_image")
+    - GENERATION models (hunyuan, qwen_image):
+      → User controls aspect_ratio (text-to-image, no input images)
+    - HYBRID models (seedream):
+      → Flexible (can edit or generate)
 
     Attributes:
-        model_type: Which model to use (qwen, qwen_gguf, or seedream)
-        prompt: Edit instruction (e.g., "make the sky sunset colors")
+        model_type: Which model to use
+        prompt: Edit instruction or generation prompt
         negative_prompt: What to avoid in the output (Qwen only)
 
-        # Qwen-specific parameters:
-        true_cfg_scale: Classifier-free guidance scale (higher = more prompt adherence)
-        num_inference_steps: Number of diffusion steps (higher = better quality but slower)
+        # Qwen GGUF-specific (LOCAL EDIT):
+        quantization_level: Quantization level (Q5_K_S recommended)
+        true_cfg_scale: Guidance scale (higher = more prompt adherence)
+        num_inference_steps: Diffusion steps (higher = better quality, slower)
 
-        # Qwen GGUF-specific parameters:
-        quantization_level: Quantization level (Q5_K_S recommended for balance)
+        # Hunyuan-specific (CLOUD GENERATION):
+        seed: Random seed for reproducibility
+        aspect_ratio: Output aspect ratio (1:1, 4:3, 16:9, etc.)
 
-        # Seedream-specific parameters:
-        size: Image resolution (1K, 2K, 4K, or custom)
-        aspect_ratio: Aspect ratio (e.g., "4:3", "16:9", "match_input_image")
-        enhance_prompt: Enable prompt enhancement for better quality
+        # Qwen-Image-Edit-Plus-specific (CLOUD EDIT):
+        → aspect_ratio is FORCED to "match_input_image" in backend (not user-controlled)
+
+        # Seedream-specific (HYBRID):
+        size: Image resolution (1K, 2K, 4K)
+        aspect_ratio: Can use "match_input_image" or custom (4:3, 16:9, etc.)
+        enhance_prompt: Enable prompt enhancement
         sequential_image_generation: Enable auto multi-image generation
-        max_images: Max images to generate when sequential mode is auto
+        max_images: Max images to generate
     """
     model_type: ModelType = Field(
-        ModelType.QWEN,
+        ModelType.QWEN_GGUF,
         description="Which model to use for image editing"
     )
     prompt: str = Field(
@@ -137,6 +173,12 @@ class EditConfig(BaseModel):
         description="Enable prompt enhancement for Qwen-Image (text-to-image only)"
     )
 
+    # Hunyuan-specific parameters
+    seed: Optional[int] = Field(
+        None,
+        description="Random seed for reproducible generation (Hunyuan only)"
+    )
+
     # Seedream-specific parameters
     size: Optional[str] = Field(
         "2K",
@@ -144,7 +186,7 @@ class EditConfig(BaseModel):
     )
     aspect_ratio: Optional[str] = Field(
         "4:3",
-        description="Aspect ratio like '4:3', '16:9', or 'match_input_image' (Seedream only)"
+        description="Aspect ratio like '4:3', '16:9', '1:1' - also used by Hunyuan (Seedream/Hunyuan)"
     )
     enhance_prompt: bool = Field(
         False,
